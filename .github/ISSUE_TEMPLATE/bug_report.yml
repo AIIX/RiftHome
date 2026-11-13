@@ -1,0 +1,114 @@
+# SPDX-FileCopyrightText: 2026 Aditya Mehra <aix.m@outlook.com>
+# SPDX-License-Identifier: Apache-2.0
+
+name: Bug report
+description: Something does not work in Rift Home. Reports without the version, the setup and the log cannot be acted on.
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please fill in every field: a report without the log is marked as needing information.
+        Security problems do not go here: see [SECURITY.md](https://github.com/AIIX/RiftHome/blob/main/SECURITY.md).
+        Headset problems outside Rift Home (no picture, no tracking, controllers not paired) belong to [RiftLinux's issues](https://github.com/AIIX/RiftLinux/issues).
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched the [existing issues](https://github.com/AIIX/RiftHome/issues?q=is%3Aissue), Troubleshooting and Known limitations in the documentation, and this is not among them.
+          required: true
+        - label: I am on the latest release and can still reproduce it.
+          required: true
+        - label: The problem is in Rift Home, not in the headset itself (no tracking, controllers not paired).
+          required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Rift Home version
+      description: Settings, About.
+      placeholder: e.g. 0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: riftlinux
+    attributes:
+      label: RiftLinux version
+      description: Settings, About.
+      placeholder: e.g. 0.1.5
+    validations:
+      required: true
+
+  - type: dropdown
+    id: start
+    attributes:
+      label: How did you start Rift Home?
+      options:
+        - "From the login screen (the Rift Home session)"
+        - "From the desktop's app menu"
+    validations:
+      required: true
+
+  - type: input
+    id: system
+    attributes:
+      label: Distribution
+      placeholder: e.g. CachyOS
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: Graphics card and driver version
+      placeholder: e.g. NVIDIA RTX 3080, driver 615.78
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Exact, numbered steps, including the app.
+      placeholder: |
+        1. Start Rift Home
+        2. Open ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: Include any message Rift Home or an app showed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: The log (required)
+      description: |
+        The newest file in `~/.local/state/rift-home/logs/`: `session-<time>.log` if you started from the login screen, `desktop-<time>.log` if you started from the app menu. Attach it and the apps' logs folder next to it, or paste the part around the problem. The logs contain your user name in paths; remove anything you prefer to keep private.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: What you already tried (optional)
+    validations:
+      required: false

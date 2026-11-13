@@ -1,0 +1,135 @@
+#version 450
+// SPDX-FileCopyrightText: 2026 Aditya Mehra <aix.m@outlook.com>
+// SPDX-License-Identifier: Apache-2.0
+// Copies a window surface's image into its OpenXR swapchain: rounded window corners (the window's visible geometry,
+// shadows drawn by the app left out), opaque formats made opaque, and colours the runtime does not take decoded here:
+// the transfer curve (gamma 2.2/2.8, BT.1886, sRGB's piece-wise curve, ST 240, log, PQ, HLG with its
+// OOTF), the primaries onto the layer's (a matrix, clipped at 0), a gain to the layer's scale, then left linear for a
+// float swapchain or encoded again as sRGB for an 8-bit one. Premultiplied alpha in and out (Wayland's and OpenXR's
+// rule); the curves apply to the colour without its alpha. OUTPUT_FLOAT: a 16-bit float swapchain, else an 8-bit one
+// written through a UNORM view (sRGB values: the runtime decodes them).
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 0, binding = 0) uniform sampler2D source;
+layout(set = 0, binding = 2) uniform sampler2D chroma; // P010's chroma plane (flags 4); else the source again
+#ifdef OUTPUT_FLOAT
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D target;
+#else
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2D target;
+#endif
+
+layout(push_constant) uniform Params {
+    ivec2 size; // the surface's pixels
+    ivec2 offset; // the surface's position in the window's geometry
+    ivec2 windowSize; // the window's geometry
+    float radius; // corner radius in window pixels; 0: square, nothing cut (exact copy)
+    uint flags; // 1: opaque format, 4: P010 (luma in source, chroma in chroma; BT.2020 NCL, limited range)
+    uint curve; // Color::DecodeCurve: 0 none, 1 sRGB, 2 power (exponent), 3 PQ, 4 HLG, 5 ST 240, 6 log 100, 7 log 316
+    float exponent;
+    float gain; // after decoding and the matrix
+    uint convert; // 1: the matrix (rows m0-m2), 2: encoded again as sRGB
+    vec4 m0; // .w: the source's luminance weights (HLG's OOTF), m0.w red, m1.w green, m2.w blue
+    vec4 m1;
+    vec4 m2;
+    vec2 scale; // window pixels a buffer pixel (a surface shown at another size than its buffer's)
+    float yuvMax; // P010: the content's peak, encoded (PQ): the conversion's overshoot at bright edges kept below it
+    float pad;
+} p;
+
+vec3 srgbToLinear(vec3 c)
+{
+    return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), greaterThan(c, vec3(0.04045)));
+}
+
+vec3 linearToSrgb(vec3 c)
+{
+    c = clamp(c, 0.0, 1.0);
+    return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, greaterThan(c, vec3(0.0031308)));
+}
+
+vec3 pqToLinear(vec3 e)
+{
+    const float m1 = 2610.0 / 16384.0, m2 = 2523.0 / 4096.0 * 128.0;
+    const float c1 = 3424.0 / 4096.0, c2 = 2413.0 / 4096.0 * 32.0, c3 = 2392.0 / 4096.0 * 32.0;
+    const vec3 x = pow(e, vec3(1.0 / m2));
+    return pow(max(x - c1, 0.0) / (c2 - c3 * x), vec3(1.0 / m1));
+}
+
+// BT.2100 HLG: the inverse OETF to scene light, then the OOTF for its 1000 cd/m² reference display (gamma 1.2) in the
+// source's own primaries: 1.0 = that display's peak.
+vec3 hlgToDisplay(vec3 e)
+{
+    const float a = 0.17883277, b = 0.28466892, c = 0.55991073;
+    const vec3 scene = mix(e * e / 3.0, (exp((e - c) / a) + b) / 12.0, greaterThan(e, vec3(0.5)));
+    const float y = dot(vec3(p.m0.w, p.m1.w, p.m2.w), scene);
+    return scene * pow(max(y, 1e-6), 0.2);
+}
+
+vec3 decode(vec3 e)
+{
+    switch (p.curve) {
+    case 1u:
+        return srgbToLinear(e);
+    case 2u:
+        return pow(e, vec3(p.exponent));
+    case 3u:
+        return pqToLinear(e);
+    case 4u:
+        return hlgToDisplay(e);
+    case 5u:
+        return mix(e / 4.0, pow((e + 0.1115) / 1.1115, vec3(1.0 / 0.45)), greaterThanEqual(e, vec3(0.0913)));
+    case 6u:
+        return mix(vec3(0.0), pow(vec3(10.0), (e - 1.0) * 2.0), greaterThan(e, vec3(0.0)));
+    case 7u:
+        return mix(vec3(0.0), pow(vec3(10.0), (e - 1.0) * 2.5), greaterThan(e, vec3(0.0)));
+    default:
+        return e;
+    }
+}
+
+void main()
+{
+    const ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
+    if (xy.x >= p.size.x || xy.y >= p.size.y) {
+        return;
+    }
+    vec4 c = texelFetch(source, xy, 0);
+    if ((p.flags & 4u) != 0u) {
+        // P010: 10-bit codes in the top of 16-bit words; limited range (Y 64-940, Cb/Cr 64-960 around 512), BT.2020
+        // non-constant luminance (Firefox's HDR video): R'G'B' as encoded (PQ), decoded below like any PQ window.
+        const float codes = 65535.0 / 64.0;
+        const float y = (c.r * codes - 64.0) / 876.0;
+        // Chroma interpolated (one chroma value a 2x2 block made banding and halos in skies), at
+        // 4:2:0's sample positions: horizontally with the even luma columns, vertically between two luma rows.
+        const vec2 at = vec2(float(xy.x) * 0.5 + 0.5, float(xy.y) * 0.5 + 0.25) / vec2(textureSize(chroma, 0));
+        const vec2 uv = (textureLod(chroma, at, 0.0).rg * codes - 512.0) / 896.0;
+        c = vec4(clamp(vec3(y + 1.4746 * uv.y, y - 0.16455 * uv.x - 0.57135 * uv.y, y + 1.8814 * uv.x), 0.0, p.yuvMax), 1.0);
+    }
+    if ((p.flags & 1u) != 0u) {
+        c.a = 1.0;
+    }
+    if (p.curve != 0u || p.convert != 0u) {
+        vec3 rgb = c.a > 0.0 ? c.rgb / c.a : vec3(0.0);
+        if (p.curve != 0u) {
+            rgb = decode(clamp(rgb, 0.0, 1.0)); // encoded values: 0..1
+        }
+        if ((p.convert & 1u) != 0u) {
+            rgb = max(vec3(dot(p.m0.xyz, rgb), dot(p.m1.xyz, rgb), dot(p.m2.xyz, rgb)), vec3(0.0));
+        }
+        rgb *= p.gain;
+        if ((p.convert & 2u) != 0u) {
+            rgb = linearToSrgb(rgb);
+        }
+        c.rgb = rgb * c.a;
+    }
+    if (p.radius > 0.0) {
+        // Signed distance to the window's rounded rectangle, in window pixels; antialiased over one pixel.
+        const vec2 w = (vec2(xy) + 0.5) * p.scale + vec2(p.offset);
+        const vec2 halfSize = vec2(p.windowSize) * 0.5;
+        const vec2 q = abs(w - halfSize) - (halfSize - vec2(p.radius));
+        const float d = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - p.radius;
+        c *= clamp(0.5 - d, 0.0, 1.0);
+    }
+    imageStore(target, xy, c);
+}

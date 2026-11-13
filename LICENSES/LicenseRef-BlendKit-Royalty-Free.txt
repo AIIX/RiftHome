@@ -1,0 +1,11 @@
+BlendKit Royalty Free licence
+
+Assets offered on BlendKit (https://www.blendkit.com) under its "Royalty free" licence. The full terms are BlendKit's:
+https://www.blendkit.com/docs/licenses/
+
+In short, as BlendKit states them: the asset may be used commercially without naming its author; it may not be
+re-sold in the same form (as an asset, alone or in an asset pack), also not when modified.
+
+In Rift Home: data/rooms/twilight-lake.hdr and data/rooms/mountain-sunset.hdr, by EB Adventure Photoscans, converted
+from the OpenEXR originals to Radiance HDR for use as rooms in Rift Home (the twilight lake at 5120x2560 with its land
+and water's deepest shadows lifted, the mountain sunset at 4096x2048).

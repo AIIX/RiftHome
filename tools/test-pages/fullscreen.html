@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<!-- SPDX-FileCopyrightText: 2026 Aditya Mehra <aix.m@outlook.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Rift Home test page: a click anywhere asks for fullscreen (as a video player's button does); the outcome goes into
+     the title, which Rift Home logs ("title: ..."). -->
+<html><head><meta charset="utf-8"><title>fullscreen test: waiting for a click</title>
+<style>html,body{margin:0;height:100%}button{width:100%;height:100%;font-size:48px}</style></head>
+<body><button id="b">Click: fullscreen</button>
+<script>
+document.getElementById('b').addEventListener('click', () => {
+  document.title = 'fullscreen test: clicked, asking';
+  document.documentElement.requestFullscreen()
+    .then(() => { document.title = 'fullscreen test: GRANTED by Firefox'; })
+    .catch((e) => { document.title = 'fullscreen test: DENIED by Firefox: ' + e.message; });
+});
+document.addEventListener('fullscreenchange', () => {
+  document.title = 'fullscreen test: ' + (document.fullscreenElement ? 'NOW FULLSCREEN' : 'left fullscreen');
+});
+</script></body></html>

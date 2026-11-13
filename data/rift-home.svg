@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Rift Home's icon: a headset's visor in front of three windows, on a deep blue tile. Rift Home's own art. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b4c7a"/>
+      <stop offset="1" stop-color="#1b2340"/>
+    </linearGradient>
+    <linearGradient id="visor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4f6fb"/>
+      <stop offset="1" stop-color="#c9d0e2"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="224" height="224" rx="52" fill="url(#tile)"/>
+  <!-- three windows side by side, the middle one larger, as Rift Home places them -->
+  <rect x="38" y="62" width="44" height="34" rx="7" fill="#8fb3ff" opacity="0.55"/>
+  <rect x="88" y="52" width="80" height="54" rx="9" fill="#a9c4ff" opacity="0.8"/>
+  <rect x="174" y="62" width="44" height="34" rx="7" fill="#8fb3ff" opacity="0.55"/>
+  <!-- the visor -->
+  <path d="M52 132 C52 118 64 112 80 112 L176 112 C192 112 204 118 204 132 L204 170 C204 184 194 192 180 192 L158 192
+           C148 192 142 186 136 176 C133 171 131 168 128 168 C125 168 123 171 120 176 C114 186 108 192 98 192 L76 192
+           C62 192 52 184 52 170 Z" fill="url(#visor)"/>
+  <rect x="60" y="122" width="136" height="10" rx="5" fill="#ffffff" opacity="0.7"/>
+</svg>

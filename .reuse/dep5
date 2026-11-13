@@ -1,0 +1,38 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Rift Home
+Upstream-Contact: Aditya Mehra <aix.m@outlook.com>
+Source: https://github.com/AIIX/RiftHome
+
+Files: data/controllers/*.glb data/rift-home.svg
+Copyright: 2026 Aditya Mehra <aix.m@outlook.com>
+License: CC-BY-4.0
+Comment: Artwork, made for Rift Home.
+
+Files: NOTICE
+Copyright: 2026 Aditya Mehra <aix.m@outlook.com>
+License: Apache-2.0
+
+Files: docs/releases/*.md
+Copyright: 2026 Aditya Mehra <aix.m@outlook.com>
+License: CC-BY-4.0
+Comment: Release notes, used as the GitHub release's text as they are.
+
+Files: data/rooms/night-sky.hdr
+Copyright: ambientCG (https://ambientcg.com)
+License: CC0-1.0
+Comment: Night Environment HDRI 008 (https://ambientcg.com/view?id=NightEnvironmentHDRI008), converted from the
+ OpenEXR original to Radiance HDR.
+
+Files: data/rooms/twilight-lake.hdr data/rooms/mountain-sunset.hdr
+Copyright: EB Adventure Photoscans
+License: LicenseRef-BlendKit-Royalty-Free
+Comment: "Dramatic Twilight at Lake" and "Aerial Mountain Dramatic Sunset" from BlendKit
+ (https://www.blendkit.com/asset-gallery-detail/029524d1-ca0d-4356-a127-6d4e78644874/ and
+ https://www.blendkit.com/asset-gallery-detail/59cda774-c592-4f76-949d-6bafa7497bf1/), converted from the OpenEXR
+ originals to Radiance HDR: the twilight lake from its 13000x6500 original to 5120x2560 (area-averaged), the land and
+ water's deepest shadows lifted (the sky as authored; tools/rooms/make-room.py), the mountain sunset at 4096x2048.
+
+Files: docs/images/*.png
+Copyright: 2026 Aditya Mehra <aix.m@outlook.com>
+License: CC-BY-4.0
+Comment: Screenshots of Rift Home for the documentation (private details blurred).

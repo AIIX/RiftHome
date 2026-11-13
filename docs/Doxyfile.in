@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 Aditya Mehra <aix.m@outlook.com>
+# SPDX-License-Identifier: Apache-2.0
+# Rift Home's API documentation: cmake --build build --target doc, then build/doc/html/index.html.
+# Only the settings that differ from Doxygen's defaults.
+PROJECT_NAME           = "Rift Home"
+PROJECT_NUMBER         = @PROJECT_VERSION@
+PROJECT_BRIEF          = "A VR desktop for Linux"
+OUTPUT_DIRECTORY       = @CMAKE_CURRENT_BINARY_DIR@/doc
+STRIP_FROM_PATH        = @CMAKE_CURRENT_SOURCE_DIR@/src
+STRIP_FROM_INC_PATH    = @CMAKE_CURRENT_SOURCE_DIR@/src
+INPUT                  = @CMAKE_CURRENT_SOURCE_DIR@/src
+FILE_PATTERNS          = *.hpp *.cpp
+RECURSIVE              = YES
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+EXTRACT_ANON_NSPACES   = NO
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = YES
+BUILTIN_STL_SUPPORT    = YES
+SOURCE_BROWSER         = YES
+GENERATE_TREEVIEW      = YES
+GENERATE_LATEX         = NO
+HAVE_DOT               = NO
+QUIET                  = YES
+INCLUDE_PATH           = @SHADER_OUT@
+WARN_IF_UNDOCUMENTED   = NO
+WARN_NO_PARAMDOC       = NO
+WARN_LOGFILE           = @CMAKE_CURRENT_BINARY_DIR@/doc/warnings.log

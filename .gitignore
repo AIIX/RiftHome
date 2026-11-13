@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 Aditya Mehra <aix.m@outlook.com>
+# SPDX-License-Identifier: Apache-2.0
+# Build output and what a run makes (logs, captures, state): never in the repository.
+build/
+run/
+.cache/
+# Test media (large; the HDR rooms are Poly Haven CC0, downloaded separately, see test-media/rooms/README.txt).
+test-media/
+__pycache__/
+*.pyc

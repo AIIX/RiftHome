@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: 2026 Aditya Mehra <aix.m@outlook.com>
+# SPDX-License-Identifier: Apache-2.0
+[Desktop Entry]
+Type=Application
+Name=Rift Home
+Comment=Your apps around you in the Oculus Rift, no desktop underneath
+Exec=@ROOT@/scripts/rift-home-session-start
+TryExec=@ROOT@/scripts/rift-home-session-start
+DesktopNames=RiftHome;KDE

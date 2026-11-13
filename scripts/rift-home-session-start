@@ -1,0 +1,75 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Aditya Mehra <aix.m@outlook.com>
+# SPDX-License-Identifier: Apache-2.0
+# Rift Home as the login session (rift-home-session): what the login screen's "Rift Home" entry runs (installed by the
+# package, or by tools/install-session-entry.sh for the source tree). No desktop underneath: Rift Home drives the monitor (its status page) and input,
+# lends the headset to RiftLinux's runtime, which it starts, and is the session's display for everything started in it.
+# Leaving Rift Home ends the session: back to the login screen. Apps use the user's own settings and profiles
+# (Settings -> Power can give them Rift Home's own instead).
+# Log: ~/.local/state/rift-home/logs/session-<time>.log (run/ in the source tree).
+set -u
+HERE=$(dirname "$(readlink -f "$0")")
+NAME="session-$(date +%Y%m%d-%H%M%S)"
+# Installed: the program next to this command, state and logs in ~/.local/state/rift-home. From the source tree: its
+# build, and the state and logs in run/ there.
+if [ -x "$HERE/../build/rift-home" ] && [ -f "$HERE/../CMakeLists.txt" ]; then
+	ROOT=$(readlink -f "$HERE/..")
+	BIN=$ROOT/build/rift-home
+	LOGS=$ROOT/run
+	set -- --with-profile --state-dir "$ROOT/run/state-frame"
+else
+	BIN=$HERE/rift-home
+	LOGS=${XDG_STATE_HOME:-$HOME/.local/state}/rift-home/logs
+	set --
+fi
+mkdir -p "$LOGS"
+LOG="$LOGS/$NAME.log"
+# The session's own steps, before Rift Home's log follows in the same file.
+note() {
+	echo "$(date '+%F %T') session: $*" >>"$LOG"
+}
+export XDG_SESSION_TYPE=wayland
+export XDG_SESSION_DESKTOP=rifthome
+# Rift Home and its apps as in Plasma: Qt takes the KDE theme (the user's colours, icons, dialogs) only for exactly
+# "KDE", and KDE's apps and Chromium's password store look at KDE_FULL_SESSION and KDE_SESSION_VERSION. The portals get
+# their own name (Rift Home hands it to the user's services), so they read rifthome-portals.conf.
+export XDG_CURRENT_DESKTOP=KDE
+export KDE_FULL_SESSION=true
+export KDE_SESSION_VERSION=6
+export RIFT_HOME_PORTAL_DESKTOP=RiftHome:KDE
+export QT_FORCE_STDERR_LOGGING=1
+# The keyboard layout the system is set to (localectl), for the monitor's keyboard.
+if command -v localectl >/dev/null 2>&1; then
+	LAYOUT=$(localectl status 2>/dev/null | sed -n 's/^ *X11 Layout: //p')
+	VARIANT=$(localectl status 2>/dev/null | sed -n 's/^ *X11 Variant: //p')
+	[ -n "$LAYOUT" ] && export XKB_DEFAULT_LAYOUT="$LAYOUT"
+	[ -n "$VARIANT" ] && export XKB_DEFAULT_VARIANT="$VARIANT"
+fi
+# The password stores, unlocked by the login as under Plasma and GNOME, so no app asks for a wallet's password. KDE's
+# wallet: the login screen's PAM module (pam_kwallet5 auto_start) started it with the login's password and waits for the
+# session's environment, which Rift Home hands it once its display runs (pam_kwallet_init, as Plasma does). GNOME's
+# keyring, where KDE's wallet is not the login's: unlocked by its own PAM module; started here when not running.
+if [ -n "${PAM_KWALLET5_LOGIN:-}" ]; then
+	note "wallet: the login's PAM module waits at $PAM_KWALLET5_LOGIN (Rift Home runs pam_kwallet_init once its display is up)"
+elif ! busctl --user status org.freedesktop.secrets >/dev/null 2>&1 && command -v gnome-keyring-daemon >/dev/null 2>&1; then
+	gnome-keyring-daemon --start --components=secrets >>"$LOG" 2>&1
+	note "wallet: no KDE wallet from the login and no Secret Service on the bus: GNOME's keyring started"
+else
+	note "wallet: no PAM_KWALLET5_LOGIN: the login did not open KDE's wallet (pam_kwallet5 not in the login's PAM stack?)"
+fi
+# File dialogs and other portals for Rift Home's desktop name: the GTK backend (they open as windows in the headset); the
+# Secret portal (flatpaks' keys) from the store the login unlocked: KDE's wallet where it is installed, else the keyring.
+PORTALS="${XDG_CONFIG_HOME:-$HOME/.config}/xdg-desktop-portal/rifthome-portals.conf"
+if [ -e /usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.kwallet.service ]; then
+	SECRET=kwallet
+else
+	SECRET=gnome-keyring
+fi
+WANTED=$(printf '[preferred]\ndefault=gtk\norg.freedesktop.impl.portal.Secret=%s\n' "$SECRET")
+# Written when missing, or when it is Rift Home's own earlier one (default=gtk only); a file the user changed stays.
+if [ ! -e "$PORTALS" ] || [ "$(cat "$PORTALS")" = "$(printf '[preferred]\ndefault=gtk')" ]; then
+	mkdir -p "$(dirname "$PORTALS")"
+	printf '%s\n' "$WANTED" >"$PORTALS"
+fi
+echo "$(date '+%F %T') Rift Home session starting (log $LOG)" >&2
+exec "$BIN" --backend drm --xr --start-runtime --login-session --log-dir "$LOGS/$NAME/apps" "$@" >>"$LOG" 2>&1

@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: 2026 Aditya Mehra <aix.m@outlook.com>
+# SPDX-License-Identifier: Apache-2.0
+
+# Blank issues are off: every issue goes through a form, so the version, the setup and the log are always asked for.
+blank_issues_enabled: false
+contact_links:
+  - name: Security problem (do not open a public issue)
+    url: https://github.com/AIIX/RiftHome/blob/main/SECURITY.md
+    about: Report security problems privately, as SECURITY.md describes.
+  - name: Headset problem (no picture, tracking, controllers)
+    url: https://github.com/AIIX/RiftLinux/issues
+    about: Problems with the headset outside Rift Home belong to RiftLinux's issues.
+  - name: Question or help
+    url: https://github.com/AIIX/RiftHome/discussions
+    about: Ask questions in Discussions; issues are for reproducible bugs and feature proposals.
+  - name: Known limitations
+    url: https://github.com/AIIX/RiftHome/blob/main/docs/known-limitations.md
+    about: Check the known limitations and Troubleshooting before filing a bug.

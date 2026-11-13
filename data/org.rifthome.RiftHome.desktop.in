@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Aditya Mehra <aix.m@outlook.com>
+# SPDX-License-Identifier: Apache-2.0
+[Desktop Entry]
+Type=Application
+Name=Rift Home
+GenericName=VR Desktop
+Comment=Your apps around you in the Oculus Rift (RiftLinux's runtime)
+Exec=@ROOT@/scripts/rift-home-start.sh
+Icon=@ROOT@/data/rift-home.svg
+Terminal=false
+Categories=Utility;
+Keywords=VR;Rift;Oculus;headset;
+StartupNotify=false

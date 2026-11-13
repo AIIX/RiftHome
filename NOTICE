@@ -1,0 +1,11 @@
+Rift Home
+Copyright 2026 Aditya Mehra
+
+This product is licensed under the Apache License, Version 2.0 (LICENSE). Its documentation and artwork (the
+controller models and the icon) are licensed under the Creative Commons Attribution 4.0 International licence
+(LICENSES/CC-BY-4.0.txt). The files in third_party/ carry their own licence (Boost Software License 1.0,
+LICENSES/BSL-1.0.txt). Every file names its licence in an SPDX header or in .reuse/dep5.
+
+The rooms in data/rooms are by others: night-sky.hdr by ambientCG (CC0-1.0); twilight-lake.hdr and
+mountain-sunset.hdr by EB Adventure Photoscans, under BlendKit's royalty free licence
+(LICENSES/LicenseRef-BlendKit-Royalty-Free.txt): not to be re-sold as assets.
