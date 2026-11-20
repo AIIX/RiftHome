@@ -81,6 +81,7 @@ struct WindowPlacement {
     float pixelScale = 1.0f; //!< window pixels a unit of the app's own: the apps' scale (HiDPI), 1 for X11 apps
     bool fullscreen = false; //!< fullscreen (a video): shown as a cinema screen
     bool maximized = false;
+    bool x11 = false; //!< an X11 app (XWayland): its fullscreen is the X screen's size, not one Rift Home picks
     bool wantsKeyboard = false; //!< a text field is focused in it (text-input-v3)
     bool focused = false; //!< it has the keyboard focus: the virtual keyboard types into it
     std::vector<SurfacePlacement> surfaces;

@@ -1094,6 +1094,7 @@ void Server::publishScene()
         placement.pixelScale = float(scale);
         placement.fullscreen = window->isFullscreen();
         placement.maximized = window->isMaximized();
+        placement.x11 = window->xsurface() != nullptr;
         placement.focused = window == m_focused;
         for (const auto &t : m_textInputs) {
             if (t->input->current_enabled && windowOf(t->input->focused_surface) == window) {
@@ -1144,6 +1145,9 @@ void Server::setAppScale(double scale)
     }
     for (SurfaceExport *exporter : std::as_const(m_exports)) {
         exporter->tellScale(); // its own session: told surface by surface
+    }
+    for (Window *window : std::as_const(m_windows)) {
+        window->tellBounds(); // the same pixels, fewer of the apps' own units
     }
     qCInfo(lcWayland).noquote() << QStringLiteral("apps at %1 % (their windows' pixels a side for each of their own)").arg(qRound(scale * 100.0));
     publishScene();

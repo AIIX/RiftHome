@@ -394,9 +394,13 @@ void Window::setSizeMode(SizeMode mode)
     if (mode == SizeMode::Normal) {
         wlr_xdg_toplevel_set_size(m_toplevel, 0, 0); // the app goes back to its own size
     } else {
-        // The same pixels at any apps' scale (a 1920x1080 picture): fewer of the app's own units, its text bigger.
+        // The same pixels at any apps' scale (fewer of the app's own units, its text bigger): a UHD picture.
         const double scale = m_server.pixelScale(this);
-        wlr_xdg_toplevel_set_size(m_toplevel, int(std::lround(kLargeWidth / scale)), int(std::lround(kLargeHeight / scale)));
+        const int width = int(std::lround(kScreenWidth / scale));
+        const int height = int(std::lround(kScreenHeight / scale));
+        wlr_xdg_toplevel_set_size(m_toplevel, width, height);
+        qCInfo(lcSurface).noquote() << label() << (mode == SizeMode::Fullscreen ? "fullscreen" : "maximized")
+                                    << QStringLiteral("at %1x%2 (%3x%4 pixels)").arg(width).arg(height).arg(kScreenWidth).arg(kScreenHeight);
     }
 }
 
@@ -415,6 +419,15 @@ void Window::resize(int width, int height)
     if (!m_toplevel->base->initialized) {
         return;
     }
+    if (m_toplevel->scheduled.fullscreen) {
+        // Cinema mode's screen: still fullscreen, a new size for it (up to kMaxScreenWidth x kMaxScreenHeight pixels).
+        const double scale = m_server.pixelScale(this);
+        const int w = std::clamp(width, 160, int(std::lround(kMaxScreenWidth / scale)));
+        const int h = std::clamp(height, 90, int(std::lround(kMaxScreenHeight / scale)));
+        wlr_xdg_toplevel_set_size(m_toplevel, w, h);
+        qCInfo(lcSurface).noquote() << label() << QStringLiteral("fullscreen at %1x%2 (its screen resized)").arg(w).arg(h);
+        return;
+    }
     // The app's own limits (0: none), and a sensible range around them.
     const auto limit = [](int value, int low, int high) {
         return std::clamp(value, low, high);
@@ -426,6 +439,16 @@ void Window::resize(int width, int height)
     wlr_xdg_toplevel_set_fullscreen(m_toplevel, false);
     wlr_xdg_toplevel_set_maximized(m_toplevel, false);
     wlr_xdg_toplevel_set_size(m_toplevel, limit(width, minW, std::max(minW, maxW)), limit(height, minH, std::max(minH, maxH)));
+}
+
+void Window::tellBounds()
+{
+    constexpr int kBoundsSince = 4; // XDG_TOPLEVEL_CONFIGURE_BOUNDS_SINCE_VERSION (only in the client header)
+    if (m_xsurface || !m_toplevel || !m_toplevel->base->initialized || wl_resource_get_version(m_toplevel->resource) < kBoundsSince) {
+        return;
+    }
+    const double scale = m_server.pixelScale(this);
+    wlr_xdg_toplevel_set_bounds(m_toplevel, int(std::lround(kMaxWidth / scale)), int(std::lround(kMaxHeight / scale)));
 }
 
 QString Window::label() const
@@ -485,8 +508,9 @@ void Window::onCommit()
         return;
     }
     if (m_toplevel->base->initial_commit) {
-        // The client picks its own size (0x0) for now.
+        // The client picks its own size (0x0) for now, up to the largest it gets here.
         wlr_xdg_toplevel_set_size(m_toplevel, 0, 0);
+        tellBounds();
         if (wlr_xdg_toplevel_decoration_v1 *decoration = m_server.decorationFor(m_toplevel)) {
             applyServerSideDecoration(decoration);
         }

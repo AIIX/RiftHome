@@ -28,8 +28,8 @@ change in Settings.
 | Grip held, then B | either grip | Recline: everything turns to where you look (lying back, on your side); again for upright. See [Lying back](using-rift-home.md#lying-back-recline). |
 
 The ray belongs to the controller you used last: pull a trigger or squeeze a grip and that hand points. Moving a
-controller or pressing a button brings back a pointer that has hidden (see "Hide when still" in
-[Settings](settings.md)).
+controller or pressing a button brings back a pointer that has hidden, and the controller with it (see "Hide when
+still" in [Settings](settings.md)).
 
 A button set to Left click, Right click or Middle click stays pressed for as long as you hold it, so you can drag
 with it.

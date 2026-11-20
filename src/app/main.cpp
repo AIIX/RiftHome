@@ -641,6 +641,8 @@ int main(int argc, char **argv)
         }
         const RiftHome::Xr::XrCompositor::LiveSettings live = liveSettings(settings);
         server.setAppScale(appScaleOf(settings));
+        // The runtime's picture as it starts with Rift Home (rift-home-start.sh and the runtime's start below read the same).
+        xrOptions.pictureQuality = std::clamp(settings.value(QStringLiteral("display")).toObject().value(QStringLiteral("composition")).toInt(165), 165, 200);
         const QString defaultRoom = xrOptions.environment; // --xr-environment: offered in Settings whatever room is chosen
         xrOptions.keyboardShowOnTextField = live.keyboardShowOnTextField;
         xrOptions.frameTheme = live.frameTheme;

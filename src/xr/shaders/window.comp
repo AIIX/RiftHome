@@ -23,8 +23,9 @@ layout(push_constant) uniform Params {
     ivec2 size; // the surface's pixels
     ivec2 offset; // the surface's position in the window's geometry
     ivec2 windowSize; // the window's geometry
-    float radius; // corner radius in window pixels; 0: square, nothing cut (exact copy)
-    uint flags; // 1: opaque format, 4: P010 (luma in source, chroma in chroma; BT.2020 NCL, limited range)
+    float radius; // corner radius in window pixels (0: square)
+    uint flags; // 1: opaque format, 4: P010 (luma in source, chroma in chroma; BT.2020 NCL, limited range), 8: the
+                // window's outline: corners rounded by radius, its outermost pixel ring clear (not set: an exact copy)
     uint curve; // Color::DecodeCurve: 0 none, 1 sRGB, 2 power (exponent), 3 PQ, 4 HLG, 5 ST 240, 6 log 100, 7 log 316
     float exponent;
     float gain; // after decoding and the matrix
@@ -123,13 +124,15 @@ void main()
         }
         c.rgb = rgb * c.a;
     }
-    if (p.radius > 0.0) {
-        // Signed distance to the window's rounded rectangle, in window pixels; antialiased over one pixel.
+    if ((p.flags & 8u) != 0u) {
+        // Signed distance to the window's rounded rectangle, in this image's pixels (window pixels over p.scale);
+        // antialiased over one pixel, the outermost one clear: the runtime draws a layer's border as a hard cut through
+        // its outermost pixels, which crawls as the head moves; a clear ring makes the edge a one-pixel ramp in the image.
         const vec2 w = (vec2(xy) + 0.5) * p.scale + vec2(p.offset);
         const vec2 halfSize = vec2(p.windowSize) * 0.5;
         const vec2 q = abs(w - halfSize) - (halfSize - vec2(p.radius));
         const float d = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - p.radius;
-        c *= clamp(0.5 - d, 0.0, 1.0);
+        c *= clamp(-d / max(max(p.scale.x, p.scale.y), 1e-3) - 0.5, 0.0, 1.0); // (the larger: clear on both axes)
     }
     imageStore(target, xy, c);
 }

@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cmath>
+#include <utility>
 
 namespace RiftHome::Spatial
 {
@@ -30,8 +31,47 @@ enum class FrameControl {
     ResetCurve, //!< the dot at the slider's right end: flat again
     Grab,
     Scale,
-    Resize, //!< the bottom-left corner: the app gets a new pixel size (more content), not just bigger
+    Resize, //!< the button at the top-right corner: the app gets a new pixel size (more content), not just bigger
+    Lock, //!< the padlock at the curvature slider's left end: the window's place is locked (grabbing does not move it)
+    // Cinema mode's row of shapes under the screen (kAspectOrder), tallest to widest after Original.
+    AspectOriginal, //!< the film's own shape: the size mpv gave its window
+    Aspect43, //!< Classic: old TV and classic films (the Academy ratio, 1.37, is close)
+    AspectImaxFilm, //!< IMAX film: IMAX 70 mm's full frame, 1.43:1
+    Aspect16x9, //!< TV: TV and most series, 1.78:1
+    Aspect185, //!< Widescreen: the usual cinema widescreen ("flat"), 1.85:1
+    AspectImax, //!< IMAX: digital IMAX and IMAX Enhanced, 1.90:1
+    Aspect2, //!< Streaming: many streaming originals, 2:1
+    Aspect239, //!< Scope: most big films (also called 2.35 or 2.40), 2.39:1
 };
+
+constexpr int kAspects = 8;
+//! The cinema screen's shapes, left to right: the film's own (Original), then tallest to widest.
+constexpr std::array<FrameControl, kAspects> kAspectOrder{FrameControl::AspectOriginal, FrameControl::Aspect43,  FrameControl::AspectImaxFilm,
+                                                          FrameControl::Aspect16x9,     FrameControl::Aspect185, FrameControl::AspectImax,
+                                                          FrameControl::Aspect2,        FrameControl::Aspect239};
+//! Their width over height (0: the film's own, known from its window).
+constexpr std::array<float, kAspects> kAspectValues{0.0f, 4.0f / 3.0f, 1.43f, 16.0f / 9.0f, 1.85f, 1.90f, 2.0f, 2.39f};
+//! The index of @p control in kAspectOrder, -1 when it is not a shape.
+int aspectIndex(FrameControl control);
+/*!
+ * The cinema screen's pixels for @p aspect: as large as fits a UHD picture (@p frameWidth x @p frameHeight), even
+ * numbers: a 4K film's own pixels whatever its shape (2.39:1: 3840 x 1606; 4:3: 2880 x 2160).
+ */
+std::pair<int, int> screenPixels(float aspect, int frameWidth = 3840, int frameHeight = 2160);
+/*!
+ * The width (metres) of a screen of @p aspect in the 16:9 frame around the screen now (@p width x @p height metres): the
+ * frame as wide as the screen when it is 16:9 or wider, else as high; a shape 16:9 or wider fills the frame's width,
+ * a narrower one its height. As a real screen's masking: every shape fits the same frame, so switching back and forth
+ * comes back to the same size (fitting inside the screen itself would shrink it at every switch), and
+ * a 4K picture's shapes (screenPixels) keep the screen's scale. The scale handle makes it larger.
+ */
+float shapeWidthInFrame(float aspect, float width, float height);
+/*!
+ * The one shape a @p width x @p height screen is (within 1 %), its index in kAspectOrder: Original when it is the app's
+ * own (@p naturalWidth x @p naturalHeight; 0: not known), else the usual shape it is; -1 for a size of the user's own
+ * (none is lit, not a wrong one).
+ */
+int shapeLit(int width, int height, int naturalWidth, int naturalHeight);
 
 constexpr int kMenuButtons = 7;
 //! The menu's buttons, top to bottom (the keyboard is in the dock: one keyboard, for the focused window).
@@ -72,6 +112,10 @@ struct FrameLayout {
     FrameRect resize; //!< the resize button: a round one just outside the top-right corner
     FrameRect curve; //!< the curvature slider's track, above the window
     FrameRect resetCurve; //!< the dot at its right end
+    FrameRect lock; //!< the padlock at its left end (also where the slider is not drawn)
+    FrameRect aspectBar; //!< cinema mode's row of shapes, under the grab bar
+    std::array<FrameRect, kAspects> aspects; //!< its buttons, kAspectOrder
+    bool aspectsShown = false; //!< the row is there and takes the ray (cinema mode's screen: showAspects())
     FrameRect hover; //!< the window, its controls and a margin around them
 
     /*!
@@ -82,6 +126,8 @@ struct FrameLayout {
 
     //! The control at a window-local point; None on the window itself (its content) and elsewhere.
     FrameControl hit(float x, float y) const;
+    //! The row of shapes shown (cinema mode's mpv screen): it takes the ray, and the frame shows near it too.
+    void showAspects();
     //! The curvature slider: where its knob is for a curvature (0..1), and the curvature at a point along it.
     float knobX(float curvature) const
     {
@@ -114,6 +160,10 @@ struct FrameLayout {
     static constexpr float kDot = 0.028f; //!< the reset dot's diameter
     static constexpr float kKnob = 0.03f; //!< the curvature slider's knob
     static constexpr float kResizeDot = 0.044f; //!< the resize button's diameter
+    static constexpr float kLockDot = 0.036f; //!< the padlock button's diameter (a padlock must read, larger than the dots)
+    static constexpr float kAspectButton = 0.092f; //!< a shape button's width: its outline, its name, its ratio
+    static constexpr float kAspectOriginalButton = 0.12f; //!< Original's, wider ("Original" and the film's ratio)
+    static constexpr float kAspectHeight = 0.084f; //!< the row's height (three rows: outline, name, ratio)
 };
 
 } // namespace RiftHome::Spatial

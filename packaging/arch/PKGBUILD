@@ -4,7 +4,7 @@
 # Rift Home from its release's source (Arch, CachyOS, EndeavourOS, Manjaro). packaging/make-packages.sh builds the
 # release's package with this file and a local source tarball.
 pkgname=rift-home
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="A VR desktop for the Oculus Rift CV1 on RiftLinux: your apps as windows in a room around you"
 arch=('x86_64')

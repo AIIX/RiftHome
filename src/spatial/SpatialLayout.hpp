@@ -24,6 +24,8 @@ struct WindowInfo {
     int heightPx = 0;
     bool fullscreen = false;
     float pixelScale = 1.0f; //!< window pixels a unit of the app's own (the apps' scale; 1 for X11 apps)
+    bool x11 = false; //!< an X11 app: fullscreen is the X screen's size (its cinema screen keeps that shape)
+    bool maximized = false;
 };
 
 //! Where a window is in the room and how it behaves. Its pose is upright (a yaw facing the user); its turn and tilt
@@ -41,6 +43,9 @@ struct SpatialWindow {
     float tilt = 0.0f; //!< radians; positive: the face turns up (the top leans back)
     float turn = 0.0f; //!< radians, on top of facing the user; positive: the face turns to the user's right
     bool pinned = false; //!< stays where it is in the room when the user recentres
+    //! Its place is locked (the padlock above it): a grab does not move it, nearer or farther either, so a film is
+    //! not knocked aside by a grip pressed by chance. Its size and scale still change (the grab's thumbstick too).
+    bool locked = false;
     bool follow = false;
     // Follow mode: where the window sits in the following group (relative to its yaw and centre).
     float followAzimuth = 0.0f;
@@ -56,6 +61,14 @@ struct SpatialWindow {
     //! 0 flat, 1 bent through kMaxCurveAngle (the same shape at any size).
     float curvature = 0.0f;
     bool minimized = false; //!< hidden in the room (still running); Home's running apps bring it back
+    bool x11 = false; //!< WindowInfo::x11
+    //! Maximized: its scale is maximizedDensity times smaller (more pixels, the same size in the room); saved and
+    //! remembered at its normal scale.
+    bool maximized = false;
+    //! The size its app last gave it by itself (not fullscreen, maximized or asked with the resize button): a player
+    //! opens at its video's shape (mpv does), a game at its own: the cinema screen's "Original" shape.
+    int naturalWidthPx = 0;
+    int naturalHeightPx = 0;
 };
 
 //! A window bent all the way (curvature 1) spans this angle around its axis.
@@ -85,6 +98,9 @@ struct LayoutOptions {
     float theaterWidth = 3.6f; //!< metres: cinema mode's screen (about 54 degrees at 3.5 m)
     float theaterDistance = 3.5f;
     float mainWidth = 1.92f; //!< metres: a window made the main one (about 60 degrees at 1.6 m)
+    //! A maximized window's pixels are this much denser: 3840 across (a UHD picture) where 1920 were, as large in the
+    //! room, twice the detail.
+    float maximizedDensity = 2.0f;
 };
 
 /*!
@@ -195,12 +211,26 @@ public:
     void makeMain(int windowId, const Pose &head);
     //! Pinned (anchored in the room) or not; returns the new state.
     bool togglePin(int windowId);
+    //! The window's place locked (SpatialWindow::locked) or not; returns the new state (false: no such window).
+    bool toggleLock(int windowId);
     /*!
      * Cinema mode: @p windowId alone as a large screen straight in front of @p head (the others are
      * hidden by the XR side, the room dimmed); leaveCinema() puts it back exactly where it was.
      */
     void enterCinema(int windowId, const Pose &head);
     void leaveCinema();
+    /*!
+     * A size the user asked for @p windowId with the resize button (window pixels). When the window then has it, the
+     * screen keeps its scale: more pixels, a larger screen. Any other change of a fullscreen screen's pixels (the app
+     * going fullscreen) keeps the screen's width, as before.
+     */
+    void askedSize(int windowId, int widthPx, int heightPx);
+    /*!
+     * A new shape for the cinema screen (its row of shapes, or mpv's own shape as it comes): once the app has @p widthPx
+     * x @p heightPx, the screen is @p widthMeters wide (Spatial::shapeWidthInFrame: in the 16:9 frame around it). Its shape
+     * is not remembered for the next time (every film has its own); its place and width are.
+     */
+    void setCinemaShape(int windowId, int widthPx, int heightPx, float widthMeters);
     int cinemaWindow() const
     {
         return m_cinema;
@@ -226,6 +256,22 @@ public:
     }
     //! The group catches up when the user has turned or walked away by more than a threshold.
     void updateFollow(const Pose &head, float dt);
+    /*!
+     * The room drawn at a finite distance: a sphere of @p radius metres about @p centre (0: none, or not drawn). The
+     * runtime does not depth-test layers, so a window beyond the room's surface is drawn over the room while each eye's
+     * view puts it behind it: two depths at once, the window floating and sliding with the head (it can make people
+     * feel sick). Windows, their frame's controls included, stay kRoomMargin inside it.
+     */
+    void setRoomBound(Vec3 centre, float radius);
+    //! The farthest point of @p window and its frame's controls (FrameLayout's hover area) from the room's centre.
+    float farthestFromRoomCentre(const SpatialWindow &window) const;
+    /*!
+     * Every window inside the room (the one held or dragged left to its own limits): one beyond comes nearer the room's
+     * centre and smaller by as much, so from there it looks the same (placed while the room was off, made larger by its
+     * app, a room switched on). Once a frame, after every other move.
+     */
+    void keepWindowsInRoom();
+    static constexpr float kRoomMargin = 0.25f; //!< metres inside the room's surface
 
     /*!
      * The user recentred (LOCAL moved to their head; RiftLinux's runtime does not say by how much): the whole
@@ -272,6 +318,20 @@ private:
     std::map<int, SpatialWindow> m_windows;
     std::map<std::string, SpatialWindow> m_remembered; //!< poses relative to the home
     Pose m_home;
+    Vec3 m_roomCentre; //!< setRoomBound()
+    float m_roomRadius = 0.0f;
+    float roomLimit() const
+    {
+        return m_roomRadius > 0.0f ? m_roomRadius - kRoomMargin : 0.0f;
+    }
+    //! How a window beyond the room comes back inside: nearer its centre (its size kept: a push stops), smaller (its
+    //! place kept: growing stops), or both by the same factor about its centre (it looks the same from there).
+    enum class Inside {
+        Nearer,
+        Smaller,
+        Both,
+    };
+    void keepInRoom(SpatialWindow &window, Inside how);
     bool m_homeSet = false;
     struct Grab {
         int windowId;
@@ -335,6 +395,16 @@ private:
         Pose pose; //!< relative to the home
         float width = 0.0f; //!< metres
     };
+    std::map<int, std::vector<std::pair<int, int>>> m_askedSizes; //!< askedSize(): by window
+    //! A shape asked of the cinema screen (setCinemaShape()), until the app has its pixels: then this wide.
+    struct CinemaRestore {
+        int widthPx = 0;
+        int heightPx = 0;
+        float width = 0.0f; //!< metres
+    };
+    std::optional<CinemaRestore> m_cinemaRestore;
+    //! Whether @p window has a size the user asked for (within the apps' rounding: a few pixels).
+    bool hasAskedSize(const SpatialWindow &window) const;
     std::map<std::string, CinemaPlace> m_cinemaPlaces;
     void rememberCinemaPlace();
     // The following group: the yaw and centre its windows are placed around (the head's when the group formed).

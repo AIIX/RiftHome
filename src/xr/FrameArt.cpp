@@ -394,6 +394,54 @@ QImage resizeDot(State state, Theme theme)
     return image;
 }
 
+QImage lockDot(bool locked, State state, Theme theme)
+{
+    const int size = px(FrameLayout::kLockDot);
+    QImage image = canvas(size, size);
+    QPainter p(&image);
+    p.setRenderHint(QPainter::Antialiasing);
+    const Palette colours = palette(theme);
+    const QColor rim = barColours(state, theme).second;
+    const bool lit = state == State::Hovered || state == State::Pressed;
+    QColor ink;
+    p.setPen(QPen(rim, 1.5));
+    if (locked) {
+        // On, as the menu's buttons: the highlight colour filled, the padlock in the glass's colour.
+        p.setBrush(withAlpha(colours.highlight, state == State::Idle ? 150 : 235));
+        ink = withAlpha(colours.glass, 255);
+    } else {
+        p.setBrush(barColours(state, theme).first);
+        ink = theme == Theme::Dark ? (lit ? QColor(26, 27, 31) : QColor(255, 255, 255, 220)) : QColor(30, 30, 34, lit ? 255 : 220);
+    }
+    p.drawEllipse(QRectF(1.5, 1.5, size - 3, size - 3));
+    // The padlock: its body below the middle, the shackle above (open: lifted, its left leg out of the body).
+    const qreal s = size;
+    const QRectF body(s * 0.31, s * 0.47, s * 0.38, s * 0.28);
+    p.setPen(Qt::NoPen);
+    p.setBrush(ink);
+    p.drawRoundedRect(body, s * 0.05, s * 0.05);
+    const qreal r = s * 0.115; // the shackle's half width
+    const qreal cx = s * 0.5;
+    const qreal top = s * 0.23;
+    QPainterPath shackle;
+    if (locked) {
+        shackle.moveTo(cx - r, body.top());
+        shackle.lineTo(cx - r, top + r);
+        shackle.arcTo(QRectF(cx - r, top, 2 * r, 2 * r), 180, -180);
+        shackle.lineTo(cx + r, body.top());
+    } else {
+        const qreal lift = s * 0.08;
+        shackle.moveTo(cx + r, body.top());
+        shackle.lineTo(cx + r, top + r - lift);
+        shackle.arcTo(QRectF(cx - r, top - lift, 2 * r, 2 * r), 0, 180);
+        shackle.lineTo(cx - r, top + r - lift + s * 0.05);
+    }
+    p.setPen(QPen(ink, s * 0.075, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setBrush(Qt::NoBrush);
+    p.drawPath(shackle);
+    return image;
+}
+
 QImage scaleCorner(float cornerRadius, State state, Theme theme)
 {
     // As FrameLayout places it: the window's corner centre C is kScaleArm in from the image's left and top; the arc
@@ -1166,6 +1214,120 @@ QImage label(const QString &text, Theme theme)
     p.setPen(colours.ink);
     p.drawText(pill, Qt::AlignCenter, text);
     return image;
+}
+
+QImage aspectBar(int lit, int hovered, int pressed, const QString &original, float originalAspect, Theme theme)
+{
+    // Each shape: its outline (taller or wider at a glance), its name, its ratio. Original: the film's own.
+    static const char *const names[Spatial::kAspects] = {"Original", "Classic", "IMAX film", "TV", "Widescreen", "IMAX", "Streaming", "Scope"};
+    static const char *const ratios[Spatial::kAspects] = {"", "4:3", "1.43:1", "16:9", "1.85:1", "1.90:1", "2:1", "2.39:1"};
+    const Palette colours = palette(theme);
+    const int first = px(FrameLayout::kAspectOriginalButton);
+    const int cell = px(FrameLayout::kAspectButton);
+    const int h = px(FrameLayout::kAspectHeight);
+    QImage image = canvas(first + cell * (Spatial::kAspects - 1), h);
+    QPainter p(&image);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setRenderHint(QPainter::TextAntialiasing);
+    const QRectF glass(1, 1, image.width() - 2, h - 2);
+    p.setPen(QPen(colours.rim, 2.0));
+    p.setBrush(glassBrush(colours, theme, glass, 190, 150));
+    p.drawRoundedRect(glass, h * 0.22, h * 0.22);
+    // Text drawn smaller when too wide for its button (never cut short).
+    const auto text = [&p](const QRectF &r, const QString &line, int pixels, QFont::Weight weight) {
+        QFont font;
+        font.setPixelSize(pixels);
+        font.setWeight(weight);
+        const qreal wide = QFontMetricsF(font).horizontalAdvance(line);
+        if (wide > r.width()) {
+            font.setPixelSize(std::max(1, int(pixels * r.width() / wide)));
+        }
+        p.setFont(font);
+        p.drawText(r, Qt::AlignCenter, line);
+    };
+    int x = 0;
+    for (int i = 0; i < Spatial::kAspects; ++i) {
+        const int w = i == 0 ? first : cell;
+        const QRectF r(x + 4, 5, w - 8, h - 10);
+        x += w;
+        const bool unknown = i == 0 && (original.isEmpty() || originalAspect <= 0.0f);
+        const float aspect = i == 0 ? (unknown ? 16.0f / 9.0f : originalAspect) : Spatial::kAspectValues[i];
+        const qreal round = r.height() * 0.22;
+        // The shape now: solid. Pressed: a little filled. Under the ray: an outline only (a fill means the shape now).
+        if (i == lit || i == pressed) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(withAlpha(colours.highlight, i == lit ? 235 : (theme == Theme::Dark ? 90 : 70)));
+            p.drawRoundedRect(r, round, round);
+        }
+        if (i == hovered) {
+            const qreal line = std::max<qreal>(2.0, h * 0.035);
+            p.setPen(QPen(withAlpha(colours.highlight, 230), line));
+            p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(r.adjusted(line / 2.0, line / 2.0, -line / 2.0, -line / 2.0), round, round);
+        }
+        const QColor ink = i == lit ? withAlpha(colours.glass, 255) : unknown ? withAlpha(colours.ink, 110) : colours.ink;
+        // Its outline: a frame of its shape, all as high (wider ones capped to the button).
+        const qreal iconHeight = r.height() * 0.24;
+        const qreal iconWidth = std::min<qreal>(iconHeight * aspect, r.width() * 0.82);
+        const QRectF icon(r.center().x() - iconWidth / 2.0, r.top() + r.height() * 0.10, iconWidth, iconWidth / aspect);
+        p.setPen(QPen(ink, std::max<qreal>(1.5, h * 0.022)));
+        p.setBrush(Qt::NoBrush);
+        p.drawRect(icon);
+        p.setPen(ink);
+        const qreal side = r.width() * 0.06;
+        text(QRectF(r.left() + side, r.top() + r.height() * 0.40, r.width() - 2 * side, r.height() * 0.30), QString::fromLatin1(names[i]),
+             int(h * 0.20), QFont::DemiBold);
+        const QString ratio = i == 0 ? (unknown ? QStringLiteral("not known") : original) : QString::fromLatin1(ratios[i]);
+        text(QRectF(r.left() + side, r.top() + r.height() * 0.70, r.width() - 2 * side, r.height() * 0.26), ratio, int(h * 0.16), QFont::Normal);
+    }
+    return image;
+}
+
+QImage stats(const QStringList &lines, Theme theme)
+{
+    const Palette colours = palette(theme);
+    QImage image = canvas(px(kStatsWidth), px(kStatsHeight));
+    QPainter p(&image);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setRenderHint(QPainter::TextAntialiasing);
+    const QRectF glass(1, 1, image.width() - 2, image.height() - 2);
+    p.setPen(QPen(colours.rim, 2.0));
+    p.setBrush(glassBrush(colours, theme, glass, 200, 170));
+    p.drawRoundedRect(glass, glass.height() * 0.28, glass.height() * 0.28);
+    const qreal row = glass.height() / kStatsLines;
+    const qreal room = glass.width() - row * 0.9;
+    p.setPen(colours.ink);
+    for (int i = 0; i < std::min<int>(kStatsLines, int(lines.size())); ++i) {
+        QFont font;
+        font.setPixelSize(int(row * 0.56)); // the label's size: a degree tall at any distance
+        font.setWeight(i == 0 ? QFont::DemiBold : QFont::Normal);
+        // Too long: smaller until it fits (a line is never cut short).
+        const qreal wide = QFontMetricsF(font).horizontalAdvance(lines.at(i));
+        if (wide > room) {
+            font.setPixelSize(std::max(1, int(font.pixelSize() * room / wide)));
+        }
+        p.setFont(font);
+        p.drawText(QRectF(glass.left() + row * 0.45, glass.top() + i * row, room, row), Qt::AlignVCenter | Qt::AlignLeft, lines.at(i));
+    }
+    return image;
+}
+
+QString aspectRatio(int width, int height)
+{
+    if (width <= 0 || height <= 0) {
+        return {};
+    }
+    const double ratio = double(width) / height;
+    static const std::pair<double, const char *> known[] = {
+        {16.0 / 9.0, "16:9"}, {4.0 / 3.0, "4:3"}, {16.0 / 10.0, "16:10"}, {21.0 / 9.0, "21:9"}, {2.39, "2.39:1"},
+        {1.85, "1.85:1"}, {2.0, "2:1"}, {3.0 / 2.0, "3:2"}, {1.0, "1:1"},
+    };
+    for (const auto &[value, name] : known) {
+        if (std::abs(ratio / value - 1.0) < 0.01) {
+            return QString::fromLatin1(name);
+        }
+    }
+    return QStringLiteral("%1:1").arg(ratio, 0, 'f', 2);
 }
 
 QImage lensTest(float pixelsPerRadian, int spacingMm, bool cross)

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "spatial/SpatialLayout.hpp"
 
+#include "spatial/WindowFrame.hpp"
+
 #include <QJsonArray>
 
 #include <algorithm>
@@ -154,15 +156,33 @@ void SpatialLayout::sync(const std::vector<WindowInfo> &windows, const Pose &hea
             SpatialWindow &window = it->second;
             const float widthBefore = widthMeters(window); // metres, at the old pixel size
             const int pixelsBefore = window.widthPx;
+            const int heightBefore = window.heightPx;
             window.widthPx = info.widthPx;
             window.heightPx = info.heightPx;
             window.appId = info.appId;
             window.pixelScale = info.pixelScale;
+            window.x11 = info.x11;
+            if (!info.fullscreen && !info.maximized && info.widthPx > 0 && info.heightPx > 0 && !hasAskedSize(window)) {
+                window.naturalWidthPx = info.widthPx; // the app's own choice (a video's or game's shape)
+                window.naturalHeightPx = info.heightPx;
+            }
             if (window.windowId == m_cinema) {
-                // Cinema mode: the theater screen keeps its width (the user's, if they resized it) whatever size the app
-                // gives its window (it goes fullscreen).
+                // Cinema mode: the theater screen keeps its width (the user's, if they scaled it) whatever size the app
+                // gives its window (it goes fullscreen). Pixels the user asked for (the resize button) keep its scale: a
+                // larger screen; a shape asked (setCinemaShape) is as wide as asked once the app has its pixels.
                 window.fullscreen = info.fullscreen;
-                if (window.widthPx > 0 && pixelsBefore != window.widthPx && widthBefore > 0.0f) {
+                const bool changed = pixelsBefore != window.widthPx || heightBefore != window.heightPx;
+                const auto near = [](int a, int b) {
+                    return std::abs(a - b) <= 4;
+                };
+                // Only while fullscreen: an app that leaves fullscreen by itself (mpv's own key) is not a size of the screen.
+                if (changed && window.fullscreen && m_cinemaRestore && window.widthPx > 0 && near(window.widthPx, m_cinemaRestore->widthPx)
+                    && near(window.heightPx, m_cinemaRestore->heightPx)) {
+                    window.scale = m_cinemaRestore->width / (window.widthPx / m_options.pixelsPerMeter);
+                    m_cinemaRestore.reset();
+                } else if (changed && window.fullscreen && hasAskedSize(window)) {
+                    // The user's own size (the resize button): its scale stays, more pixels a larger screen.
+                } else if (window.widthPx > 0 && pixelsBefore != window.widthPx && widthBefore > 0.0f) {
                     window.scale = widthBefore / (window.widthPx / m_options.pixelsPerMeter);
                 }
                 continue;
@@ -198,6 +218,16 @@ void SpatialLayout::sync(const std::vector<WindowInfo> &windows, const Pose &hea
                 // frame) when the app changes its pixel size.
                 window.scale = widthBefore / (window.widthPx / m_options.pixelsPerMeter);
             }
+            if (!window.fullscreen && info.maximized != window.maximized) {
+                // Maximized: twice the pixels, as large in the room (its scale halves); back, its own scale again. Made
+                // smaller with the resize button instead, the size asked keeps its scale.
+                window.maximized = info.maximized;
+                if (!hasAskedSize(window)) {
+                    const float density = m_options.maximizedDensity;
+                    window.scale = window.maximized ? window.scale / density : window.scale * density;
+                }
+                m_dirty = true;
+            }
             continue;
         }
         SpatialWindow window;
@@ -206,6 +236,13 @@ void SpatialLayout::sync(const std::vector<WindowInfo> &windows, const Pose &hea
         window.widthPx = info.widthPx;
         window.heightPx = info.heightPx;
         window.pixelScale = info.pixelScale;
+        window.x11 = info.x11;
+        window.maximized = info.maximized && !info.fullscreen;
+        if (!info.fullscreen && !info.maximized) {
+            window.naturalWidthPx = info.widthPx;
+            window.naturalHeightPx = info.heightPx;
+        }
+        const float density = window.maximized ? m_options.maximizedDensity : 1.0f; // remembered at its normal scale
         const auto remembered = info.appId.empty() ? m_remembered.end() : m_remembered.find(info.appId);
         const bool appShown = std::any_of(m_windows.begin(), m_windows.end(), [&](const auto &entry) {
             return entry.second.appId == info.appId;
@@ -213,12 +250,14 @@ void SpatialLayout::sync(const std::vector<WindowInfo> &windows, const Pose &hea
         if (remembered != m_remembered.end() && !appShown) {
             window.pose = m_home * remembered->second.pose;
             window.pinned = remembered->second.pinned;
+            window.locked = remembered->second.locked;
             window.follow = remembered->second.follow;
             if (m_curve < 0.999f) {
                 followArc(window, m_home.position); // remembered from another curve: turned to this one where it stands
             }
             // Its size in the room as it was: its pixels are more or fewer if its app drew at another scale then.
-            window.scale = std::clamp(remembered->second.scale * remembered->second.pixelScale / std::max(info.pixelScale, 0.1f), kMinScale, kMaxScale);
+            window.scale = std::clamp(remembered->second.scale * remembered->second.pixelScale / std::max(info.pixelScale, 0.1f), kMinScale, kMaxScale)
+                / density;
             window.followAzimuth = remembered->second.followAzimuth;
             window.followDistance = remembered->second.followDistance;
             window.followHeight = remembered->second.followHeight;
@@ -227,9 +266,10 @@ void SpatialLayout::sync(const std::vector<WindowInfo> &windows, const Pose &hea
             window.curvature = remembered->second.curvature;
         } else {
             window.scale = 1.0f;
-            if (float(info.widthPx) > kLargestNewWidthPx) {
-                window.scale = kLargestNewWidthPx / float(info.widthPx);
+            if (float(info.widthPx) / density > kLargestNewWidthPx) {
+                window.scale = kLargestNewWidthPx / (float(info.widthPx) / density);
             }
+            window.scale /= density;
             window.pose = m_openInFront ? placeInFront(widthMeters(window), head) : placeNew(widthMeters(window), head);
             window.followDistance = m_options.distance;
             window.followHeight = m_options.height;
@@ -521,6 +561,16 @@ void SpatialLayout::updateGrab(const Pose &controller, const Pose &head, float p
         return;
     }
     SpatialWindow &window = it->second;
+    if (window.locked) {
+        // Its place is locked: only larger or smaller (about its centre); the hand, the push and the pull move nothing.
+        const float scale = std::clamp(window.scale * std::exp(grow * 0.8f * dt), kMinScale, kMaxScale);
+        if (scale != window.scale) {
+            window.scale = scale;
+            keepInRoom(window, Inside::Smaller); // no larger than the room has room for
+            m_dirty = true;
+        }
+        return;
+    }
     const float pushed = std::exp(pushPull * 1.2f * dt);
     m_grab->distance = std::clamp(m_grab->distance * pushed, kMinDistance, kMaxDistance);
     window.scale = std::clamp(window.scale * std::exp(grow * 0.8f * dt), kMinScale, kMaxScale);
@@ -573,6 +623,16 @@ void SpatialLayout::updateGrab(const Pose &controller, const Pose &head, float p
     }
     const Quat orientation = Quat::fromYaw(yaw);
     window.pose = {orientation, target - (orientation * tilt).rotate(offset)};
+    if (roomLimit() > 0.0f && farthestFromRoomCentre(window) > roomLimit()) {
+        // Pushed (or held) past the room's surface: it stops inside it, nearer the room's centre at its size, and the
+        // grab takes it from there, so pushing on does not build up beyond the room.
+        keepInRoom(window, Inside::Nearer);
+        const Vec3 grabbed = surfacePose(window).transform(m_grab->offsetLocal * window.scale);
+        m_grab->distance = std::max((grabbed - controller.position).length(), kMinDistance);
+        if (m_grab->onArc) {
+            m_grab->radius = std::max(horizontalDistance(grabbed - m_grab->centre), 0.1f);
+        }
+    }
     if (window.follow && m_groupSet) {
         const Vec3 relative = window.pose.position - m_groupCentre;
         window.followAzimuth = angleDifference(azimuthOf(relative), m_groupYaw);
@@ -621,6 +681,7 @@ void SpatialLayout::updateScale(Vec3 origin, Vec3 direction)
     // Scaled about the centre: the dragged point (the corner handle) stays under the ray.
     const float d = std::hypot(hit->localX, hit->localY);
     it->second.scale = std::clamp(d / m_drag->start, kMinScale, kMaxScale);
+    keepInRoom(it->second, Inside::Smaller); // no larger than the room has room for
     m_dirty = true;
 }
 
@@ -875,6 +936,8 @@ void SpatialLayout::enterCinema(int windowId, const Pose &head)
     SpatialWindow &window = it->second;
     m_beforeCinema = window;
     m_cinema = windowId;
+    m_cinemaRestore.reset();
+    m_askedSizes.erase(windowId); // sizes asked of the window before are not the screen's (it was not fullscreen then)
     // Where the user left this app's cinema screen last time, else straight ahead.
     const auto place = window.appId.empty() ? m_cinemaPlaces.end() : m_cinemaPlaces.find(window.appId);
     float width = m_options.theaterWidth;
@@ -906,6 +969,8 @@ void SpatialLayout::leaveCinema()
 {
     rememberCinemaPlace();
     const auto it = m_windows.find(m_cinema);
+    m_askedSizes.erase(m_cinema);
+    m_cinemaRestore.reset();
     m_cinema = 0;
     if (it == m_windows.end()) {
         return;
@@ -929,6 +994,47 @@ void SpatialLayout::leaveCinema()
     window.windowedTilt = m_beforeCinema.windowedTilt;
     window.windowedTurn = m_beforeCinema.windowedTurn;
     m_dirty = true;
+}
+
+void SpatialLayout::setCinemaShape(int windowId, int widthPx, int heightPx, float widthMeters)
+{
+    if (windowId != m_cinema || widthPx <= 0 || heightPx <= 0 || widthMeters <= 0.0f) {
+        return;
+    }
+    m_cinemaRestore = CinemaRestore{widthPx, heightPx, widthMeters}; // as wide as that once the app has the pixels
+}
+
+void SpatialLayout::askedSize(int windowId, int widthPx, int heightPx)
+{
+    std::vector<std::pair<int, int>> &asked = m_askedSizes[windowId];
+    asked.emplace_back(widthPx, heightPx);
+    if (asked.size() > 64) {
+        asked.erase(asked.begin()); // a long drag: the sizes still to come are the latest ones
+    }
+}
+
+bool SpatialLayout::hasAskedSize(const SpatialWindow &window) const
+{
+    const auto it = m_askedSizes.find(window.windowId);
+    if (it == m_askedSizes.end()) {
+        return false;
+    }
+    // The app's size in its own units, times the apps' scale: a few pixels off what was asked.
+    return std::any_of(it->second.begin(), it->second.end(), [&](const std::pair<int, int> &size) {
+        return std::abs(window.widthPx - size.first) <= 4 && std::abs(window.heightPx - size.second) <= 4;
+    });
+}
+
+bool SpatialLayout::toggleLock(int windowId)
+{
+    const auto it = m_windows.find(windowId);
+    if (it == m_windows.end()) {
+        return false;
+    }
+    it->second.locked = !it->second.locked;
+    remember(it->second);
+    m_dirty = true;
+    return it->second.locked;
 }
 
 bool SpatialLayout::togglePin(int windowId)
@@ -1046,6 +1152,87 @@ void SpatialLayout::updateFollow(const Pose &head, float dt)
     }
 }
 
+void SpatialLayout::setRoomBound(Vec3 centre, float radius)
+{
+    m_roomCentre = centre;
+    m_roomRadius = std::max(radius, 0.0f);
+}
+
+float SpatialLayout::farthestFromRoomCentre(const SpatialWindow &window) const
+{
+    // Its corners with its frame's controls (the menu pill, the bars, a margin) at the size they have at its distance;
+    // a curved window bends towards the user, so its flat corners are as far as it reaches.
+    const FrameLayout frame = FrameLayout::compute(widthMeters(window), heightMeters(window), 0.02f, (window.pose.position - m_roomCentre).length());
+    const FrameRect &r = frame.hover;
+    const Pose surface = surfacePose(window);
+    float farthest = 0.0f;
+    for (const float sx : {-0.5f, 0.5f}) {
+        for (const float sy : {-0.5f, 0.5f}) {
+            farthest = std::max(farthest, (surface.transform({r.x + sx * r.width, r.y + sy * r.height, 0.0f}) - m_roomCentre).length());
+        }
+    }
+    return farthest;
+}
+
+void SpatialLayout::keepInRoom(SpatialWindow &window, Inside how)
+{
+    const float limit = roomLimit();
+    if (limit <= 0.0f || farthestFromRoomCentre(window) <= limit) {
+        return;
+    }
+    const Vec3 from = window.pose.position - m_roomCentre;
+    const float startScale = window.scale;
+    const auto apply = [&](float k) {
+        if (how != Inside::Smaller) {
+            window.pose.position = m_roomCentre + from * k;
+        }
+        if (how != Inside::Nearer) {
+            window.scale = startScale * k;
+        }
+    };
+    // Nearer: no nearer the centre than a metre (else smaller as well); the largest factor that fits, by halving.
+    float low = how == Inside::Nearer ? std::min(1.0f, 1.0f / std::max(from.length(), 1e-3f)) : 0.0f;
+    float high = 1.0f;
+    apply(low);
+    if (farthestFromRoomCentre(window) <= limit) {
+        for (int i = 0; i < 24; ++i) {
+            const float middle = (low + high) / 2.0f;
+            apply(middle);
+            (farthestFromRoomCentre(window) <= limit ? low : high) = middle;
+        }
+        apply(low);
+    } else if (how == Inside::Nearer) {
+        keepInRoom(window, Inside::Smaller); // too large to fit at any distance: smaller too
+    } else if (how == Inside::Smaller) {
+        window.scale = startScale; // its middle itself beyond the room: no size fits there, so nearer and smaller
+        keepInRoom(window, Inside::Both);
+    }
+    m_dirty = true;
+}
+
+void SpatialLayout::keepWindowsInRoom()
+{
+    if (roomLimit() <= 0.0f) {
+        return;
+    }
+    for (auto &[id, window] : m_windows) {
+        if (window.minimized || (m_grab && m_grab->windowId == id) || (m_drag && m_drag->windowId == id)) {
+            continue; // hidden; or held: its grab or drag keeps it inside
+        }
+        if (window.follow && m_groupSet) {
+            // Following: placed again every frame from the group's distances, so those come in too (else it would come
+            // in smaller every frame).
+            keepInRoom(window, Inside::Nearer);
+            const Vec3 relative = window.pose.position - m_groupCentre;
+            window.followAzimuth = angleDifference(azimuthOf(relative), m_groupYaw);
+            window.followDistance = horizontalDistance(relative);
+            window.followHeight = relative.y;
+            continue;
+        }
+        keepInRoom(window, Inside::Both);
+    }
+}
+
 void SpatialLayout::ensureHome(const Pose &head)
 {
     if (m_homeSet) {
@@ -1085,6 +1272,10 @@ void SpatialLayout::remember(const SpatialWindow &window)
     if (!window.appId.empty()) {
         SpatialWindow relative = window;
         relative.pose = m_home.inverse() * window.pose;
+        if (relative.maximized) {
+            relative.scale *= m_options.maximizedDensity; // its normal scale
+            relative.maximized = false;
+        }
         m_remembered[window.appId] = relative;
     }
 }
@@ -1096,6 +1287,9 @@ QJsonObject SpatialLayout::save() const
         if (!window.appId.empty()) {
             SpatialWindow relative = window;
             relative.pose = m_home.inverse() * window.pose;
+            if (relative.maximized) {
+                relative.scale *= m_options.maximizedDensity; // its normal scale
+            }
             all[window.appId] = relative;
         }
     }
@@ -1110,6 +1304,7 @@ QJsonObject SpatialLayout::save() const
                                    {QStringLiteral("turn"), window.turn},
                                    {QStringLiteral("curvature"), window.curvature},
                                    {QStringLiteral("pinned"), window.pinned},
+                                   {QStringLiteral("locked"), window.locked},
                                    {QStringLiteral("follow"), window.follow},
                                    {QStringLiteral("followAzimuth"), window.followAzimuth},
                                    {QStringLiteral("followDistance"), window.followDistance},
@@ -1136,6 +1331,7 @@ void SpatialLayout::load(const QJsonObject &state)
         window.turn = std::clamp(float(o.value(QStringLiteral("turn")).toDouble()), -kMaxTurn, kMaxTurn);
         window.curvature = std::clamp(float(o.value(QStringLiteral("curvature")).toDouble()), 0.0f, 1.0f);
         window.pinned = o.value(QStringLiteral("pinned")).toBool();
+        window.locked = o.value(QStringLiteral("locked")).toBool(); // none (before the padlock): not locked
         window.follow = o.value(QStringLiteral("follow")).toBool();
         window.followAzimuth = float(o.value(QStringLiteral("followAzimuth")).toDouble());
         window.followDistance = float(o.value(QStringLiteral("followDistance")).toDouble(m_options.distance));

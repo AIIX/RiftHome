@@ -577,7 +577,7 @@ SettingsPage {
     }
     Text {
         width: parent.width
-        text: "Change room offers Rift Home's rooms, your pictures from " + riftSettings.userRoomsName + " and the desktop's wallpapers. A 2:1 panorama surrounds you (HDR ones in real light); any other picture becomes a room in front of you. In cinema mode the room goes dark, dim or stays softly lit. A hidden pointer comes back as soon as you move the controller or press a button."
+        text: "Change room offers Rift Home's rooms, your pictures from " + riftSettings.userRoomsName + " and the desktop's wallpapers. A 2:1 panorama surrounds you (HDR ones in real light); any other picture becomes a room in front of you. In cinema mode the room goes dark, dim or stays softly lit. A still controller hides with its ray; both come back as soon as you move it or press a button."
         color: app.subtext
         font.pixelSize: 23
         wrapMode: Text.WordWrap

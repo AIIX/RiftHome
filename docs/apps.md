@@ -40,8 +40,10 @@ Chromium-based browsers (Chromium, Google Chrome, Brave and the like, also from 
 
 - **WebXR.** Rift Home turns on Chromium's OpenXR support and points it at RiftLinux's runtime. Your browser settings stay
   as they are, and you need no flags. A WebXR page can then start a VR session. Chromium's system-call filter
-  (seccomp) is off for a browser Rift Home starts, because the runtime connection needs that. Its other sandbox
-  stays on. See [Known limitations](known-limitations.md).
+  (seccomp) is off for a browser Rift Home starts: Chromium starts the graphics driver in its XR process, NVIDIA's
+  driver makes a call there that the filter refuses, and the session fails ("XRSession creation failed"). Its other
+  sandbox stays on. Tested with Chromium 157 from Flathub (`org.chromium.Chromium`). See
+  [Known limitations](known-limitations.md).
 - **Title bar.** Chromium draws its own title bar and border by default, which would sit inside Rift Home's own window
   frame. Rift Home switches it to "Use system title bar and borders" while it runs. With your own profile, the previous
   value comes back after the browser has closed.
@@ -55,6 +57,20 @@ mpv starts with `--target-colorspace-hint=yes --target-colorspace-hint-mode=sour
 described by the film's own metadata and shown as it was made. Your mpv configuration is not changed. If you give
 the options yourself, Rift Home leaves them as you wrote them. Rift Home was tested with mpv's `gpu-next` video output
 (`--vo=gpu-next`).
+
+For the best picture from every mpv, wherever it is started (a file manager, Stremio's external player), put these in
+`~/.config/mpv/mpv.conf`. They change how finely mpv draws the film, not what it shows: mpv's sharpest built-in
+upscaler for films with fewer pixels than the screen (the cinema screen is 4K), the colour planes enlarged as finely,
+decoding on the GPU, and HDR described by the film's own metadata.
+
+```
+vo=gpu-next
+profile=high-quality
+cscale=ewa_lanczossharp
+hwdec=auto-safe
+target-colorspace-hint=yes
+target-colorspace-hint-mode=source
+```
 
 ## Stremio
 
@@ -85,8 +101,9 @@ For gamepad games see game mode in [Using Rift Home](using-rift-home.md).
 ## Flatpak apps
 
 Flatpak apps start like any other. Rift Home gives their sandbox the Wayland connection and the video decoding settings
-they need. A Flatpak Chromium also gets, for that start only, access to RiftLinux's runtime for WebXR, and your own
-overrides are left alone.
+they need. A Flatpak Chromium also gets, for that start only, what WebXR needs from RiftLinux's runtime: its socket,
+the runtime file and read-only access to the runtime library. You set no Flatpak overrides yourself, and your own are
+left alone.
 
 ## Password prompts
 

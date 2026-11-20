@@ -46,6 +46,9 @@ public:
         float environmentAngle = 135.0f;
         float environmentDistance = 4.75f; //!< metres to the environment (a room-sized sphere; 0: infinitely far)
         float roomBrightness = 1.0f; //!< the environment's light (Settings), 0.2..1
+        //! Picture quality (Settings, display.composition): the runtime's picture, percent of the panel's pixels a side;
+        //! windows' copies are made to match it (Spatial::Sharpness::targetDensity).
+        int pictureQuality = 165;
         float cinemaRoomLight = 0.15f; //!< the room's light in cinema mode, of roomBrightness (Settings: dark 0, dim, soft)
         float roomTurnDegrees = 0.0f; //!< a 360-degree room turned around the user (Settings), positive to the right
         // The controllers' rays (Settings): their colour, thickness, and hidden while still.

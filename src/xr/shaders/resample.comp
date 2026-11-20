@@ -8,6 +8,8 @@
 //   runtime's sampling at the shown part's border never reaches the stale pixels beyond it.
 // - Twice as big (mode 1), for a window shown bigger than the runtime's 1:1 density (its bilinear enlarging blurs it):
 //   Lanczos-2, its overshoot kept within the colour's range.
+// Either way the copy's outermost pixels on the window's own edges (edges) are left clear, as the window pass leaves the
+// full-size image's: the runtime cuts a layer's border hard through its outermost pixels, and an opaque edge crawls.
 // OUTPUT_FLOAT: 16-bit float images, else 8-bit ones (sRGB values: the runtime decodes them).
 
 layout(local_size_x = 16, local_size_y = 16) in;
@@ -25,7 +27,15 @@ layout(push_constant) uniform Params {
     ivec2 shownSize; // the copy's pixels
     uint encoding; // 0: linear values, 1: sRGB, 2: PQ (the runtime decodes PQ without the alpha, as here)
     uint mode; // 0: smaller, area filter; 1: twice as big, Lanczos-2
+    uint edges; // the window's own edges, their outermost pixels clear: 1 left, 2 top, 4 right, 8 bottom
 } p;
+
+// On the window's own edge: the copy's outermost pixel there (and the extra row or column repeating it).
+bool onEdge(ivec2 c)
+{
+    return ((p.edges & 1u) != 0u && c.x <= 0) || ((p.edges & 2u) != 0u && c.y <= 0)
+        || ((p.edges & 4u) != 0u && c.x >= p.shownSize.x - 1) || ((p.edges & 8u) != 0u && c.y >= p.shownSize.y - 1);
+}
 
 vec3 srgbToLinear(vec3 c)
 {
@@ -136,7 +146,11 @@ void main()
     const ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
     if (p.mode == 1u) {
         if (all(lessThan(xy, p.shownSize)) && all(lessThan(xy, imageSize(target)))) {
-            enlarge(xy);
+            if (onEdge(xy)) {
+                imageStore(target, xy, vec4(0.0));
+            } else {
+                enlarge(xy);
+            }
         }
         return;
     }
@@ -144,6 +158,10 @@ void main()
         return;
     }
     const ivec2 c = min(xy, p.shownSize - 1); // the extra row and column repeat the edge
+    if (onEdge(c)) {
+        imageStore(target, xy, vec4(0.0));
+        return;
+    }
     const vec2 ratio = vec2(p.masterSize) / vec2(p.shownSize);
     const ivec2 n = ivec2(ceil(ratio - 0.001));
     vec4 sum = vec4(0.0);

@@ -98,17 +98,40 @@ public:
     {
         return m_sceneTree;
     }
-    //! Normal (the app's own size), maximized or fullscreen (both 1920x1080; fullscreen is a cinema screen in XR).
+    //! Normal (the app's own size), maximized or fullscreen (both 3840x2160 pixels; fullscreen is a cinema screen in XR).
     enum class SizeMode {
         Normal,
         Maximized,
         Fullscreen,
     };
     void setSizeMode(SizeMode mode);
-    //! A size of its own (the frame's resize handle): not maximized or fullscreen; within the app's limits.
+    /*!
+     * A size of its own (the frame's resize handle): not maximized; within the app's limits. A fullscreen window (cinema
+     * mode's screen) stays fullscreen at the new size and fills it as it would a monitor that size: any shape, a wide
+     * film without black bars.
+     */
     void resize(int width, int height);
-    static constexpr int kLargeWidth = 1920;
-    static constexpr int kLargeHeight = 1080;
+    /*!
+     * A maximized or fullscreen window (a film, cinema mode's screen), window pixels at any apps' scale: a UHD picture,
+     * a 4K film's own pixels; at the apps' usual 200 % a 1920x1080 desktop drawn twice as fine. A maximized window is
+     * as large in the room as 1920 pixels were (Spatial::LayoutOptions::maximizedDensity). More than the headset shows
+     * across the window, and that is the point: the XR side shows it through an area-filtered smaller copy
+     * (Spatial::Sharpness), so the extra pixels are supersampling, a cleaner picture.
+     */
+    static constexpr int kScreenWidth = 3840;
+    static constexpr int kScreenHeight = 2160;
+    //! The largest a cinema screen gets with the resize button (8K: supersampling further).
+    static constexpr int kMaxScreenWidth = 7680;
+    static constexpr int kMaxScreenHeight = 4320;
+    //! The largest any other window gets here, in window pixels (the frame's resize handle stops there too).
+    static constexpr int kMaxWidth = 3840;
+    static constexpr int kMaxHeight = 2160;
+    /*!
+     * Tells the app how large it may be (xdg_toplevel.configure_bounds: kMaxWidth x kMaxHeight in its own units at the
+     * apps' scale). Without it GTK 4 bounds the size it picks by the monitor's, the headless output at the apps' scale
+     * (1920x1080 at 200 %: 960x540): Stremio could be made smaller but never larger, its page large in a small window.
+     */
+    void tellBounds();
 
     bool isMapped() const
     {

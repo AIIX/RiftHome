@@ -119,6 +119,7 @@ uint32_t bytesPerPixel(VkFormat format)
 
 constexpr uint32_t kOpaque = 1; //!< the window pass's flags (window.comp)
 constexpr uint32_t kYuvBt2020 = 4; //!< P010: luma and chroma planes, BT.2020 non-constant luminance, limited range
+constexpr uint32_t kOutline = 8; //!< the window's outline: its corners rounded, its outermost pixel ring clear
 
 //! How a buffer reaches its swapchain through the window pass.
 struct Target {
@@ -204,6 +205,7 @@ struct DownsampleParams {
     int32_t shownSize[2];
     uint32_t encoding; //!< 0 linear values, 1 sRGB, 2 PQ
     uint32_t mode; //!< 0 smaller (area filter), 1 twice as big (Lanczos-2)
+    uint32_t edges; //!< the window's own edges (SurfaceLayer::edges): the copy's outermost pixels there clear
 };
 
 const uint32_t kDownsampleRgba8[] =
@@ -378,6 +380,9 @@ constexpr float kDockMaxDistance = 1.1f;
 constexpr float kDockLowest = -0.75f; //!< metres below the eyes
 constexpr float kDockTiltFromDegrees = 40.0f; //!< gaze above the horizon from which the dock opens below the gaze tilted with it (lying back)
 constexpr float kDockHighest = 0.05f;
+//! The Rift CV1's panel, a view (pixels): the runtime's picture is Picture quality's percent of it a side.
+constexpr int kPanelWidth = 1080;
+constexpr int kPanelHeight = 1200;
 constexpr float kDockMaxAzimuth = 0.7f; //!< radians (40 degrees) either side of the gaze
 constexpr float kKeyboardBarWidth = 0.18f; //!< metres: the keyboard's grab bar, under it
 constexpr float kKeyboardBarGap = 0.022f;
@@ -394,12 +399,24 @@ enum ChromePart {
     kKnobPart, //!< its knob
     kFlatPart, //!< the dot at its right end
     kResizePart, //!< the resize button, top-right
+    kLockPart, //!< the padlock at the curvature slider's left end
+    kStatsPart, //!< the window's numbers above the resize button
+    kAspectPart, //!< cinema mode's row of shapes under the screen
     kChromeParts,
 };
 
 uint64_t chromeLayer(int windowId, int part)
 {
     return kChromeBase - uint64_t(windowId) * 16 - uint64_t(part);
+}
+
+/*!
+ * Rift Home's own pictures (the frame's parts, the dock, cards, the keyboard, the launcher): an outline as a window's,
+ * their outermost pixel ring clear. Not the room (a panorama), the ray and cursor (soft already), the lens test (exact).
+ */
+bool ownArtLayer(uint64_t id)
+{
+    return id >= ~0ull - (1ull << 40) && id != kEnvironmentLayer && id != kBeamLayer && id != kCursorLayer && id != kLensTestLayer;
 }
 
 /*!
@@ -522,6 +539,24 @@ const char *controlName(Spatial::FrameControl control)
         return "minimize";
     case Spatial::FrameControl::Resize:
         return "resize";
+    case Spatial::FrameControl::Lock:
+        return "lock";
+    case Spatial::FrameControl::AspectOriginal:
+        return "shape Original (the film's own)";
+    case Spatial::FrameControl::Aspect43:
+        return "shape Classic 4:3";
+    case Spatial::FrameControl::AspectImaxFilm:
+        return "shape IMAX film 1.43:1";
+    case Spatial::FrameControl::Aspect16x9:
+        return "shape TV 16:9";
+    case Spatial::FrameControl::Aspect185:
+        return "shape Widescreen 1.85:1";
+    case Spatial::FrameControl::AspectImax:
+        return "shape IMAX 1.90:1";
+    case Spatial::FrameControl::Aspect2:
+        return "shape Streaming 2:1";
+    case Spatial::FrameControl::Aspect239:
+        return "shape Scope 2.39:1";
     case Spatial::FrameControl::Keyboard:
         return "keyboard";
     case Spatial::FrameControl::Cinema:
@@ -574,7 +609,9 @@ struct SurfaceLayer {
     void *stagingMapped = nullptr;
     // Sharp at a distance: the pass image keeps the full-size picture; a layer shown smaller than its
     // pixels shows an area-filtered copy (made in scaledImage) in the swapchain image's top-left corner instead.
+    uint32_t drmFormat = 0; //!< the client's buffer's (its depth, as the window's numbers say)
     int level = 0; //!< Spatial::Sharpness level shown (0: full size)
+    uint32_t edges = 0; //!< the image's sides on its window's outline (1 left, 2 top, 4 right, 8 bottom): kept clear
     float wantLevel = 0.0f; //!< the level wanted where it was shown last frame (the nearest of its places)
     int shownWidth = 0; //!< the part of the swapchain image the layer shows
     int shownHeight = 0;
@@ -1157,8 +1194,21 @@ struct XrCompositor::Impl {
         std::optional<FrameArt::Menu> menuArt;
         QString labelArt;
         std::optional<std::pair<int, int>> tiltArt, grabArt, scaleArt, resetArt, curveArt, knobArt, flatArt, resizeArt; //!< (quantised size, state)
+        std::optional<std::pair<bool, int>> lockArt; //!< (locked, state)
+        uint64_t mainSurface = 0; //!< its largest surface (a player's video): what its numbers describe
+        QStringList statsArt;
+        std::optional<std::tuple<int, int, int, QString>> aspectArt; //!< (lit, hovered, pressed, Original's ratio)
     };
     std::map<int, Chrome> chrome;
+    //! The resize button pointed at or dragged: the window's numbers show above it.
+    bool statsShown(int windowId, const Chrome &c) const
+    {
+        return c.hovered == Spatial::FrameControl::Resize
+            || (chromeDrag && chromeDrag->windowId == windowId && chromeDrag->control == Spatial::FrameControl::Resize);
+    }
+    //! A window's numbers: its pixels (those asked while resizing) and shape; its picture's colour and depth, and the
+    //! pixels the headset gets of it (the filtered copy Spatial::Sharpness makes, or all of them).
+    QStringList statsFor(int windowId, const Chrome &c) const;
     struct ChromeHit {
         int windowId = 0;
         Spatial::FrameControl control = Spatial::FrameControl::None;
@@ -1203,14 +1253,96 @@ struct XrCompositor::Impl {
         const float perMetre = layout.pixelsPerMeter() / placed->second.scale;
         const float dx = std::fabs(onPlane.localX) - std::fabs(resizeDrag->startX);
         const float dy = std::fabs(onPlane.localY) - std::fabs(resizeDrag->startY);
-        // Within a quarter and four times the size it had (a ray far off the window once asked 92757 px).
-        const auto within = [](float value, int start) {
-            return int(std::lround(std::clamp(value, std::max(320.0f, start * 0.25f), std::min(3840.0f, start * 4.0f))));
+        // Within a quarter and four times the size it had (a ray far off the window once asked 92757 px), at most 4K a
+        // side; the cinema screen up to 8K (Window::kMaxScreenWidth: supersampling).
+        const bool cinema = windowId == layout.cinemaWindow();
+        const auto within = [](float value, int start, float largest) {
+            return int(std::lround(std::clamp(value, std::max(320.0f, start * 0.25f), std::min(largest, start * 4.0f))));
         };
-        return {within(resizeDrag->startWidth + 2.0f * dx * perMetre, resizeDrag->startWidth),
-                within(resizeDrag->startHeight + 2.0f * dy * perMetre, resizeDrag->startHeight)};
+        return {within(resizeDrag->startWidth + 2.0f * dx * perMetre, resizeDrag->startWidth, cinema ? 7680.0f : 3840.0f),
+                within(resizeDrag->startHeight + 2.0f * dy * perMetre, resizeDrag->startHeight, cinema ? 4320.0f : 3840.0f)};
     }
     Spatial::FrameControl hapticControl[2] = {Spatial::FrameControl::None, Spatial::FrameControl::None};
+    //! The resize button acts on a window that is not fullscreen, and on the cinema screen (not an X11 app's: its
+    //! fullscreen is the X screen's size).
+    bool resizable(const Spatial::SpatialWindow &window) const
+    {
+        return !window.fullscreen || (window.windowId == layout.cinemaWindow() && !window.x11);
+    }
+    //! Asks the app for a new size (window pixels), noted in the layout: a cinema screen keeps its scale for it.
+    void askResize(LayerBridge &bridge, int windowId, int width, int height)
+    {
+        PointerEvent e;
+        e.type = PointerEvent::Type::Resize;
+        e.windowId = windowId;
+        e.x = width;
+        e.y = height;
+        bridge.sendInput(e);
+        layout.askedSize(windowId, width, height);
+    }
+    /*!
+     * A shape for the cinema screen (its row): pixels as large as fit a UHD picture (a 4K film's own), the screen in the
+     * 16:9 frame around the one it was (Spatial::shapeWidthInFrame: back and forth, the same size); Original: the size the app gave its
+     * window (a player opens at its video's shape, a game at its own).
+     */
+    /*!
+     * The cinema screen's row of shapes is for mpv only: it opens its window at its video's shape (Original is the
+     * film's); another app's window shape is not its video's (a browser, Stremio, a game), and the resize button
+     * serves those. Not an X11 app (its fullscreen is the X screen's).
+     */
+    static bool shapesFor(const Spatial::SpatialWindow &window)
+    {
+        return !window.x11 && window.appId == "mpv";
+    }
+    void cinemaShape(LayerBridge &bridge, int hand, int windowId, int index, bool quiet = false)
+    {
+        const auto placed = layout.windows().find(windowId);
+        if (placed == layout.windows().end() || windowId != layout.cinemaWindow() || !shapesFor(placed->second) || index < 0) {
+            return;
+        }
+        const Spatial::SpatialWindow &window = placed->second;
+        float aspect = Spatial::kAspectValues[index];
+        if (index == 0) {
+            if (window.naturalWidthPx <= 0 || window.naturalHeightPx <= 0) {
+                if (!quiet) {
+                    showHint(QStringLiteral("The film's own shape is not known"), QStringLiteral("Choose one of the other shapes."), 3);
+                }
+                return;
+            }
+            aspect = float(window.naturalWidthPx) / float(window.naturalHeightPx);
+        }
+        const auto [width, height] = Spatial::screenPixels(aspect);
+        const float metres = Spatial::shapeWidthInFrame(aspect, layout.widthMeters(window), layout.heightMeters(window));
+        layout.setCinemaShape(windowId, width, height, metres);
+        askResize(bridge, windowId, width, height);
+        if (!quiet) {
+            input.haptic(hand, 0.5f, 20'000'000);
+        }
+        qCInfo(lcXr).noquote() << QStringLiteral("frame: cinema screen of window %1 shaped %2 (%3:1): %4x%5 pixels, %6 m wide")
+                                      .arg(windowId)
+                                      .arg(QLatin1String(controlName(Spatial::kAspectOrder[index])))
+                                      .arg(aspect, 0, 'f', 3)
+                                      .arg(width)
+                                      .arg(height)
+                                      .arg(metres, 0, 'f', 2);
+    }
+    //! A grab of a window whose place is locked: says so (at most once a minute a window: a grip pressed by chance
+    //! during a film puts no text over it each time).
+    std::map<int, Clock::time_point> lockedHintAt;
+    void grabbedLocked(int windowId)
+    {
+        const auto placed = layout.windows().find(windowId);
+        if (placed == layout.windows().end() || !placed->second.locked) {
+            return;
+        }
+        qCInfo(lcXr) << "window" << windowId << "is locked in place: the grab only scales it";
+        const auto now = Clock::now();
+        const auto last = lockedHintAt.find(windowId);
+        if (last == lockedHintAt.end() || now - last->second > std::chrono::minutes(1)) {
+            lockedHintAt[windowId] = now;
+            showHint(QStringLiteral("This window is locked in place"), QStringLiteral("Unlock it with the padlock above it."), 2);
+        }
+    }
     std::map<int, std::pair<bool, bool>> sizeStates; //!< window: (fullscreen, maximized)
     std::map<uint64_t, std::unique_ptr<BufferHandoff>> pendingArt; //!< uploaded at the next frame's copies
     /*!
@@ -1658,7 +1790,7 @@ struct XrCompositor::Impl {
     VkImage uploadShm(SurfaceLayer &layer, const BufferHandoff &buffer, VkFormat format);
     VkImageView view(VkImage image, VkFormat format, VkImageUsageFlags usage);
     bool recordCopy(SurfaceLayer &layer, const BufferHandoff &buffer, VkImage swapchainImage, const Target &target,
-                    const SurfaceGeometry &geometry, float radius, std::vector<std::pair<VkImage, VkDeviceMemory>> &imports);
+                    const SurfaceGeometry &geometry, bool outline, float radius, std::vector<std::pair<VkImage, VkDeviceMemory>> &imports);
     bool recordShow(SurfaceLayer &layer, VkImage swapchainImage);
     void barrier(VkImage image, VkImageLayout from, VkImageLayout to, VkAccessFlags srcAccess, VkAccessFlags dstAccess,
                  uint32_t srcFamily = VK_QUEUE_FAMILY_IGNORED, uint32_t dstFamily = VK_QUEUE_FAMILY_IGNORED);
@@ -2844,7 +2976,7 @@ VkImage XrCompositor::Impl::uploadShm(SurfaceLayer &layer, const BufferHandoff &
 }
 
 bool XrCompositor::Impl::recordCopy(SurfaceLayer &layer, const BufferHandoff &buffer, VkImage swapchainImage,
-                                    const Target &target, const SurfaceGeometry &geometry, float radius,
+                                    const Target &target, const SurfaceGeometry &geometry, bool outline, float radius,
                                     std::vector<std::pair<VkImage, VkDeviceMemory>> &imports)
 {
     const bool yuv = (target.flags & kYuvBt2020) != 0 && buffer.kind == BufferHandoff::Kind::Dmabuf && buffer.planes.size() >= 2;
@@ -2904,7 +3036,7 @@ bool XrCompositor::Impl::recordCopy(SurfaceLayer &layer, const BufferHandoff &bu
                             {geometry.x, geometry.y},
                             {geometry.windowWidth, geometry.windowHeight},
                             radius,
-                            target.flags,
+                            target.flags | (outline ? kOutline : 0u),
                             uint32_t(target.decode.curve),
                             target.decode.exponent,
                             target.decode.gain,
@@ -2931,6 +3063,15 @@ bool XrCompositor::Impl::recordCopy(SurfaceLayer &layer, const BufferHandoff &bu
         }
     }
     vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(params), &params);
+    // The image's sides on the window's outline, kept clear in its smaller or enlarged copies too (a surface inside the
+    // window, a video's, keeps its edges: the window is around them).
+    layer.edges = 0;
+    if (outline) {
+        const int shownW = geometry.width > 0 ? geometry.width : buffer.width;
+        const int shownH = geometry.height > 0 ? geometry.height : buffer.height;
+        layer.edges = (geometry.x <= 0 ? 1u : 0u) | (geometry.y <= 0 ? 2u : 0u) | (geometry.x + shownW >= geometry.windowWidth ? 4u : 0u)
+                      | (geometry.y + shownH >= geometry.windowHeight ? 8u : 0u);
+    }
     // The client's images are ours only around the pass (taken here, after every step that can fail).
     if (client) {
         takeFromClient(source);
@@ -3013,7 +3154,7 @@ bool XrCompositor::Impl::recordShow(SurfaceLayer &layer, VkImage swapchainImage)
         // around it in linear light spread its light into a ring that the runtime's mapping onto the CV1 showed as a halo
         // (the frame itself was clean). Video scalers work in the encoded values too.
         const uint32_t encoding = layer.format == VK_FORMAT_R8G8B8A8_SRGB ? 1u : 0u;
-        const DownsampleParams params{{layer.width, layer.height}, {shownWidth, shownHeight}, encoding, up ? 1u : 0u};
+        const DownsampleParams params{{layer.width, layer.height}, {shownWidth, shownHeight}, encoding, up ? 1u : 0u, layer.edges};
         barrier(layer.scaledImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_ACCESS_SHADER_WRITE_BIT);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, layer.storage == VK_FORMAT_R16G16B16A16_SFLOAT ? downsampleRgba16f : downsampleRgba8);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, downsamplePipelineLayout, 0, 1, &set, 0, nullptr);
@@ -3166,10 +3307,19 @@ void XrCompositor::Impl::frame(LayerBridge &bridge, const Options &options)
     // Where each surface sits in its window's visible geometry: the pass rounds the window's corners there.
     std::map<uint64_t, SurfaceGeometry> geometries;
     for (const WindowPlacement &window : taken.windows) {
+        uint64_t largest = 0;
+        long long largestArea = -1;
         for (const SurfacePlacement &surface : window.surfaces) {
             if (surface.clipped) {
                 geometries[surface.surfaceId] = {surface.x, surface.y, window.width, window.height, surface.width, surface.height};
+                if (const long long area = (long long)surface.width * surface.height; area > largestArea) {
+                    largest = surface.surfaceId;
+                    largestArea = area;
+                }
             }
+        }
+        if (const auto framed = chrome.find(window.windowId); framed != chrome.end()) {
+            framed->second.mainSurface = largest;
         }
     }
     std::set<uint64_t> copiedNow;
@@ -3262,23 +3412,30 @@ void XrCompositor::Impl::frame(LayerBridge &bridge, const Options &options)
         imageWaitMs += msSince(acquiring);
         acquired.push_back(layer.swapchain);
 
-        // Rounded corners on window surfaces (not on popups, beams, cursors; not in the view-locked exactness check).
+        // The window's outline on its surfaces: rounded corners, the outermost pixel ring clear (not on popups, beams,
+        // cursors; not in the view-locked exactness check).
         const auto geometry = geometries.find(id);
-        const float radius = geometry == geometries.end() || options.viewLocked ? 0.0f : options.cornerRadius;
+        const bool art = geometry == geometries.end() && ownArtLayer(id);
+        const bool outline = (geometry != geometries.end() || art) && !options.viewLocked;
+        const float radius = geometry != geometries.end() && outline ? options.cornerRadius : 0.0f; // art: its own shape
         if (layer.hasImage && layer.hdr.transfer != buffer->plan.hdr.transfer) {
             // What the runtime is told changes (a video's first frames untagged, then PQ): its HDR layer, and the Rift
             // panel's "HDR content", follow the transfer sent here.
             qCInfo(lcXr).noquote() << "surface" << id << "now" << buffer->plan.toString();
         }
         layer.hdr = buffer->plan.hdr; // the resample pass decodes by it
+        layer.drmFormat = buffer->drmFormat;
         copiedNow.insert(id);
         const Clock::time_point recordStart = Clock::now();
         const bool recorded = recordCopy(layer, *buffer, layer.images[index], *target,
-                                         geometry == geometries.end() ? SurfaceGeometry{} : geometry->second, radius, imports);
+                                         geometry != geometries.end() ? geometry->second
+                                         : art ? SurfaceGeometry{0, 0, buffer->width, buffer->height, buffer->width, buffer->height}
+                                               : SurfaceGeometry{},
+                                         outline, radius, imports);
         recordMs += msSince(recordStart);
         if (recorded) {
             layer.hasImage = true;
-            layer.alpha = radius > 0.0f || !(target->flags & kOpaque);
+            layer.alpha = outline || !(target->flags & kOpaque);
             ++copies;
         } else {
             ++notShown;
@@ -3399,10 +3556,11 @@ void XrCompositor::Impl::frame(LayerBridge &bridge, const Options &options)
             tangents /= float(located);
             if (tangents > 0.1f) {
                 const float native = float(eyeWidth) / tangents;
-                sharpDensity = sharpFactor * native;
+                sharpDensity = Spatial::Sharpness::targetDensity(native, options.pictureQuality, sharpFactor);
                 qCInfo(lcXr).noquote() << QStringLiteral("sharp at a distance: the runtime's 1:1 density %1 px a radian (%2 px wide over %3), "
-                                                         "windows shown denser than %4 get a filtered copy")
-                                              .arg(native, 0, 'f', 0).arg(eyeWidth).arg(tangents, 0, 'f', 3).arg(sharpDensity, 0, 'f', 0);
+                                                         "picture quality %4 %; windows shown denser than %5 get an averaged copy at that density")
+                                              .arg(native, 0, 'f', 0).arg(eyeWidth).arg(tangents, 0, 'f', 3).arg(options.pictureQuality)
+                                              .arg(sharpDensity, 0, 'f', 0);
             }
         }
     }
@@ -3442,7 +3600,8 @@ void XrCompositor::Impl::frame(LayerBridge &bridge, const Options &options)
     if (!options.viewLocked) {
         std::vector<Spatial::WindowInfo> infos;
         for (const WindowPlacement &window : taken.windows) {
-            infos.push_back({window.windowId, window.appId, window.width, window.height, window.fullscreen, window.pixelScale});
+            infos.push_back({window.windowId, window.appId, window.width, window.height, window.fullscreen, window.pixelScale, window.x11,
+                             window.maximized});
         }
         // The windows a session starts with line up side by side; later ones open in front of the user.
         if (focused && !firstFocusAt) {
@@ -3502,6 +3661,13 @@ void XrCompositor::Impl::frame(LayerBridge &bridge, const Options &options)
         takeNotifications(bridge);
         interact(bridge, displayTime, dt);
         layout.updateFollow(head, dt);
+        // The room as it is drawn below (a picture at environmentDistance, its light on): windows stay inside it, or
+        // the eyes see them behind the room they are drawn over (SpatialLayout::setRoomBound).
+        const auto room = layers.find(kEnvironmentLayer);
+        const float roomLight = options.roomBrightness * (1.0f - (1.0f - options.cinemaRoomLight) * cinemaFade);
+        const bool roomDrawn = room != layers.end() && room->second.hasImage && roomLight > 0.004f && options.environmentDistance > 0.0f;
+        layout.setRoomBound(layout.home().position, roomDrawn ? options.environmentDistance : 0.0f);
+        layout.keepWindowsInRoom();
         updateChromeArt();
         saveLayout(false);
     }
@@ -3758,9 +3924,10 @@ void XrCompositor::Impl::frame(LayerBridge &bridge, const Options &options)
         part(kTiltPart, c.frame.tilt);
         part(kResetPart, c.frame.resetTilt);
         part(kScalePart, c.frame.scale);
-        if (!window.fullscreen) {
-            // Not on a fullscreen window: its size in pixels is the screen's, the scale handle makes it bigger (the
-            // button did nothing there).
+        part(kLockPart, c.frame.lock);
+        if (resizable(window)) {
+            // Not on a fullscreen window (its size in pixels is the screen's; the scale handle makes it bigger), except
+            // the cinema screen: any size and shape, the app fills it.
             part(kResizePart, c.frame.resize);
         }
         if (cylinderLayers) {
@@ -3772,6 +3939,17 @@ void XrCompositor::Impl::frame(LayerBridge &bridge, const Options &options)
                 addQuad(knobLayer->second, layout.pointOn(window, c.frame.knobX(window.curvature), c.frame.curve.y, 0.004f), {knob, knob}, base);
             }
             part(kFlatPart, c.frame.resetCurve);
+        }
+        if (c.frame.aspectsShown && c.aspectArt) {
+            part(kAspectPart, c.frame.aspectBar);
+        }
+        if (statsShown(windowId, c) && !c.statsArt.isEmpty() && resizable(window)) {
+            // Above the resize button, its right edge at the button's.
+            const float u = c.frame.unit;
+            const float w = FrameArt::kStatsWidth * u;
+            const float h = FrameArt::kStatsHeight * u;
+            const Spatial::FrameRect &r = c.frame.resize;
+            part(kStatsPart, {r.x + r.width / 2.0f - w / 2.0f, r.y + r.height / 2.0f + 0.014f * u + h / 2.0f, w, h});
         }
         const int button = menuIndex(c.hovered);
         if (button >= 0 && c.labelArt == labelFor(windowId, c.hovered)) {
@@ -4043,7 +4221,9 @@ void XrCompositor::Impl::frame(LayerBridge &bridge, const Options &options)
             }
         } else if (!options.deskView) {
             for (int h = 0; h < 2; ++h) {
-                if (hands[h].gripTracked) {
+                // A controller at rest goes with its ray (Settings: hidden after so many seconds): neither blocks a
+                // film. It comes back with the ray, at a move or a button.
+                if (hands[h].gripTracked && !handRest[h].hidden) {
                     drawn.push_back({h == 0, hands[h].grip});
                 }
             }
@@ -4057,7 +4237,9 @@ void XrCompositor::Impl::frame(LayerBridge &bridge, const Options &options)
         uint32_t located = 0;
         const XrViewStateFlags needed = XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_POSITION_VALID_BIT;
         const XrResult locatedViews = drawn.empty() ? XR_SUCCESS : xrLocateViews(session, &locate, &viewState, 2, &located, eyes);
-        const QString state = drawn.empty()                 ? QStringLiteral("none tracked")
+        const bool resting = (hands[0].gripTracked && handRest[0].hidden) || (hands[1].gripTracked && handRest[1].hidden);
+        const QString state = drawn.empty() && resting       ? QStringLiteral("none drawn (at rest, hidden with their rays)")
+            : drawn.empty()                                   ? QStringLiteral("none tracked")
             : XR_FAILED(locatedViews) || located != 2         ? QStringLiteral("eyes not located (%1)").arg(int(locatedViews))
             : (viewState.viewStateFlags & needed) != needed ? QStringLiteral("eyes' poses not valid (flags %1)").arg(viewState.viewStateFlags)
                                                             : QStringLiteral("%1 drawn").arg(drawn.size());
@@ -5100,6 +5282,7 @@ void XrCompositor::Impl::interact(LayerBridge &bridge, XrTime displayTime, float
                 grabByTrigger = false;
                 input.haptic(h, 0.5f, 25'000'000);
                 qCInfo(lcXr) << "grabbed window" << target;
+                grabbedLocked(target);
             }
         } else if (hands[h].squeeze < 0.4f && state.squeeze) {
             state.squeeze = false;
@@ -5313,12 +5496,7 @@ void XrCompositor::Impl::interact(LayerBridge &bridge, XrTime displayTime, float
                 resizeDrag->moved = true; // a real drag: the release sends the last size
             }
             if (width > 0 && height > 0 && moved && Clock::now() - resizeDrag->sent > std::chrono::milliseconds(120)) {
-                PointerEvent e;
-                e.type = PointerEvent::Type::Resize;
-                e.windowId = chromeDrag->windowId;
-                e.x = width;
-                e.y = height;
-                bridge.sendInput(e);
+                askResize(bridge, chromeDrag->windowId, width, height);
                 resizeDrag->width = width;
                 resizeDrag->height = height;
                 resizeDrag->sent = Clock::now();
@@ -5531,6 +5709,9 @@ void XrCompositor::Impl::layoutChrome()
         const float cornerRadius = options.cornerRadius / layout.pixelsPerMeter() * window.scale;
         c.frame = Spatial::FrameLayout::compute(layout.widthMeters(window), layout.heightMeters(window), cornerRadius,
                                                 (c.surface.position - head.position).length());
+        if (id == layout.cinemaWindow() && shapesFor(window)) {
+            c.frame.showAspects();
+        }
     }
 }
 
@@ -5570,7 +5751,7 @@ std::optional<XrCompositor::Impl::ChromeHit> XrCompositor::Impl::chromeHitTest(S
         if (!cylinderLayers && (control == Spatial::FrameControl::Curve || control == Spatial::FrameControl::ResetCurve)) {
             control = Spatial::FrameControl::None; // no curved windows without cylinder layers (the slider is not drawn)
         }
-        if (control == Spatial::FrameControl::Resize && layout.windows().contains(id) && layout.windows().at(id).fullscreen) {
+        if (control == Spatial::FrameControl::Resize && layout.windows().contains(id) && !resizable(layout.windows().at(id))) {
             control = Spatial::FrameControl::None; // a fullscreen window's pixels are the screen's (the button is not drawn)
         }
         const bool inside = std::fabs(x) <= c.frame.windowWidth / 2.0f && std::fabs(y) <= c.frame.windowHeight / 2.0f;
@@ -5605,6 +5786,7 @@ void XrCompositor::Impl::beginChromeDrag(int hand, const ChromeHit &hit)
         }
         grabHand = hand;
         grabByTrigger = true;
+        grabbedLocked(hit.windowId);
         break;
     case Spatial::FrameControl::Scale:
         if (!layout.beginScale(hit.windowId, aim.position, aim.forward())) {
@@ -5657,12 +5839,7 @@ void XrCompositor::Impl::endChromeDrag(LayerBridge &bridge, int hand)
             const int width = resizeDrag->pendingWidth;
             const int height = resizeDrag->pendingHeight;
             if (width > 0 && height > 0 && (width != resizeDrag->width || height != resizeDrag->height)) {
-                PointerEvent e;
-                e.type = PointerEvent::Type::Resize;
-                e.windowId = drag.windowId;
-                e.x = width;
-                e.y = height;
-                bridge.sendInput(e);
+                askResize(bridge, drag.windowId, width, height);
                 qCInfo(lcXr) << "frame: resize done on window" << drag.windowId << width << "x" << height;
             }
         }
@@ -5710,11 +5887,15 @@ bool XrCompositor::Impl::releasedNear(int hand, const ChromeDrag &drag) const
     const Spatial::FrameLayout &f = framed->second.frame;
     const Spatial::FrameRect *rect = drag.control == Spatial::FrameControl::ResetTilt ? &f.resetTilt
         : drag.control == Spatial::FrameControl::ResetCurve                          ? &f.resetCurve
+        : drag.control == Spatial::FrameControl::Lock                                ? &f.lock
                                                                                      : nullptr;
     for (int i = 0; i < Spatial::kMenuButtons; ++i) {
         if (Spatial::kMenuOrder[i] == drag.control) {
             rect = &f.buttons[i];
         }
+    }
+    if (const int shape = Spatial::aspectIndex(drag.control); shape >= 0) {
+        rect = &f.aspects[shape];
     }
     if (!rect) {
         return false;
@@ -5800,6 +5981,8 @@ void XrCompositor::Impl::performMenu(LayerBridge &bridge, int hand, int windowId
             layout.enterCinema(windowId, head);
             command(PointerEvent::Type::Fullscreen);
             qCInfo(lcXr) << "frame: window" << windowId << "in cinema mode (the others hidden, the room dimmed)";
+            // mpv: the screen at its film's own shape from the start (no black bars), the film's own pixels.
+            cinemaShape(bridge, hand, windowId, 0, true);
         }
         break;
     }
@@ -5810,6 +5993,25 @@ void XrCompositor::Impl::performMenu(LayerBridge &bridge, int hand, int windowId
     case Spatial::FrameControl::ResetCurve:
         layout.setCurvature(windowId, 0.0f);
         qCInfo(lcXr) << "frame: window" << windowId << "flat again";
+        break;
+    case Spatial::FrameControl::AspectOriginal:
+    case Spatial::FrameControl::Aspect43:
+    case Spatial::FrameControl::AspectImaxFilm:
+    case Spatial::FrameControl::Aspect16x9:
+    case Spatial::FrameControl::Aspect185:
+    case Spatial::FrameControl::AspectImax:
+    case Spatial::FrameControl::Aspect2:
+    case Spatial::FrameControl::Aspect239:
+        cinemaShape(bridge, hand, windowId, Spatial::aspectIndex(control));
+        return; // its own buzz
+    case Spatial::FrameControl::Lock:
+        if (layout.toggleLock(windowId)) {
+            qCInfo(lcXr) << "frame: window" << windowId << "locked in place (a grab no longer moves it)";
+            showHint(QStringLiteral("Window locked in place"), QStringLiteral("Grabbing it no longer moves it. Its size and scale still change."), 3);
+        } else {
+            qCInfo(lcXr) << "frame: window" << windowId << "unlocked";
+            showHint(QStringLiteral("Window unlocked"), QStringLiteral("It moves when you grab it again."), 2);
+        }
         break;
     case Spatial::FrameControl::Minimize:
         layout.setMinimized(windowId, true);
@@ -6442,6 +6644,52 @@ void XrCompositor::Impl::sendKeys(LayerBridge &bridge, const std::vector<Spatial
     }
 }
 
+QStringList XrCompositor::Impl::statsFor(int windowId, const Chrome &c) const
+{
+    const auto placed = layout.windows().find(windowId);
+    if (placed == layout.windows().end()) {
+        return {};
+    }
+    int width = placed->second.widthPx;
+    int height = placed->second.heightPx;
+    const bool resizing = chromeDrag && chromeDrag->windowId == windowId && chromeDrag->control == Spatial::FrameControl::Resize
+        && resizeDrag && resizeDrag->moved && resizeDrag->pendingWidth > 0;
+    if (resizing) {
+        width = resizeDrag->pendingWidth;
+        height = resizeDrag->pendingHeight;
+    }
+    QStringList lines{QStringLiteral("%1 %2 \u00d7 %3 pixels \u00b7 %4")
+                          .arg(resizing ? QStringLiteral("Window, to") : QStringLiteral("Window:"))
+                          .arg(width)
+                          .arg(height)
+                          .arg(FrameArt::aspectRatio(width, height))};
+    const auto layer = layers.find(c.mainSurface);
+    if (layer != layers.end() && layer->second.hasImage) {
+        const SurfaceLayer &l = layer->second;
+        const bool hdr = l.hdr.transfer == Color::LayerTransfer::Pq;
+        // The app's own picture's depth (its buffer), not the layer's: HDR goes to the runtime as 16-bit float.
+        const Color::PixelKind kind = Graphics::pixelKind(l.drmFormat);
+        const QString depth = l.drmFormat == DRM_FORMAT_P010    ? QStringLiteral("10-bit YUV")
+            : kind == Color::PixelKind::Unorm10 ? QStringLiteral("10-bit")
+            : kind == Color::PixelKind::Float16 ? QStringLiteral("16-bit float")
+                                                : QStringLiteral("8-bit");
+        lines << (hdr ? QStringLiteral("HDR (PQ, %1), %2").arg(Color::describe(l.hdr.primaries), depth) : QStringLiteral("SDR, %1").arg(depth));
+        // What the runtime is handed for this window: all of it, or a copy made for its eye picture: averaged down
+        // from more (supersampled), or enlarged with a sharp filter from fewer. Its size follows how much of the view
+        // the window covers.
+        lines << (l.level == 0 ? QStringLiteral("Sent to the runtime: all %1 \u00d7 %2").arg(l.width).arg(l.height)
+                  : l.level == Spatial::Sharpness::kUpLevel
+                  ? QStringLiteral("Sent to the runtime: %1 \u00d7 %2, enlarged").arg(l.shownWidth).arg(l.shownHeight)
+                  : QStringLiteral("Sent to the runtime: %1 \u00d7 %2, averaged").arg(l.shownWidth).arg(l.shownHeight));
+        // The runtime's output: each eye's picture of the whole view, Picture quality's percent of the CV1's panel.
+        lines << QStringLiteral("Each eye's picture: %1 \u00d7 %2 (%3 %)")
+                     .arg(int(std::lround(kPanelWidth * options.pictureQuality / 100.0)))
+                     .arg(int(std::lround(kPanelHeight * options.pictureQuality / 100.0)))
+                     .arg(options.pictureQuality);
+    }
+    return lines;
+}
+
 QString XrCompositor::Impl::labelFor(int windowId, Spatial::FrameControl control) const
 {
     const auto placed = layout.windows().find(windowId);
@@ -6623,6 +6871,24 @@ void XrCompositor::Impl::updateChromeArt()
             paintArt(chromeLayer(id, kMenuPart), &FrameArt::menu, menu, options.frameTheme);
             c.menuArt = menu;
         }
+        if (c.frame.aspectsShown) {
+            const int pressedShape = chromeDrag && chromeDrag->windowId == id ? Spatial::aspectIndex(chromeDrag->control) : -1;
+            const std::tuple key{Spatial::shapeLit(window.widthPx, window.heightPx, window.naturalWidthPx, window.naturalHeightPx),
+                                 Spatial::aspectIndex(c.hovered), pressedShape, FrameArt::aspectRatio(window.naturalWidthPx, window.naturalHeightPx)};
+            if (c.aspectArt != key) {
+                const float own = window.naturalHeightPx > 0 ? float(window.naturalWidthPx) / float(window.naturalHeightPx) : 0.0f;
+                paintArt(chromeLayer(id, kAspectPart), &FrameArt::aspectBar, std::get<0>(key), std::get<1>(key), std::get<2>(key), std::get<3>(key),
+                         own, options.frameTheme);
+                c.aspectArt = key;
+            }
+        }
+        if (statsShown(id, c)) {
+            const QStringList lines = statsFor(id, c);
+            if (!lines.isEmpty() && lines != c.statsArt) {
+                paintArt(chromeLayer(id, kStatsPart), &FrameArt::stats, lines, options.frameTheme);
+                c.statsArt = lines;
+            }
+        }
         const QString text = labelFor(id, c.hovered);
         if (!text.isEmpty() && text != c.labelArt && menuIndex(c.hovered) >= 0) {
             paintArt(chromeLayer(id, kLabelPart), &FrameArt::label, text, options.frameTheme);
@@ -6661,6 +6927,11 @@ void XrCompositor::Impl::updateChromeArt()
         if (c.resizeArt != resizeKey) {
             paintArt(chromeLayer(id, kResizePart), &FrameArt::resizeDot, stateOf(Spatial::FrameControl::Resize), options.frameTheme);
             c.resizeArt = resizeKey;
+        }
+        const std::pair lockKey{window.locked, int(stateOf(Spatial::FrameControl::Lock))};
+        if (c.lockArt != lockKey) {
+            paintArt(chromeLayer(id, kLockPart), &FrameArt::lockDot, window.locked, stateOf(Spatial::FrameControl::Lock), options.frameTheme);
+            c.lockArt = lockKey;
         }
         const std::pair scaleKey{int(std::lround(c.frame.cornerRadius / u * 1000.0f)), int(stateOf(Spatial::FrameControl::Scale))};
         if (c.scaleArt != scaleKey) {
@@ -7212,6 +7483,8 @@ void XrCompositor::Impl::applySettings(const XrCompositor::LiveSettings &setting
         for (auto &[id, c] : chrome) {
             c.menuArt.reset();
             c.labelArt.clear();
+            c.statsArt.clear();
+            c.aspectArt.reset();
             c.tiltArt.reset();
             c.grabArt.reset();
             c.scaleArt.reset();

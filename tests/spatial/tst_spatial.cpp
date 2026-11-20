@@ -858,6 +858,81 @@ private Q_SLOTS:
         QVERIFY(near(azimuthOf(layout.windows().at(2).pose.position), radians(20.0f), 0.01f));
     }
 
+    //! Maximized: 3840 pixels (twice 1920) as large in the room as 1920 were, twice the detail; saved and remembered at
+    //! its normal scale; its own scale again after maximized, fullscreen and normal; resized from maximized, as asked.
+    void maximizedIsTwiceTheDetailAsLargeInTheRoom()
+    {
+        SpatialLayout layout;
+        layout.sync({{1, "dolphin", 1000, 700, false, 2.0f}}, headAt());
+        QVERIFY(near(layout.windows().at(1).scale, 1.0f));
+        layout.sync({{1, "dolphin", 3840, 2160, false, 2.0f, false, true}}, headAt());
+        QVERIFY(layout.windows().at(1).maximized);
+        QVERIFY(near(layout.windows().at(1).scale, 0.5f));
+        QVERIFY(near(layout.widthMeters(layout.windows().at(1)), 1.92f));
+        // Saved at its normal scale: opened again normal, as large as before; opened again maximized, half of it.
+        SpatialLayout restarted;
+        restarted.load(layout.save());
+        restarted.sync({{4, "dolphin", 1000, 700, false, 2.0f}}, headAt());
+        QVERIFY(near(restarted.windows().at(4).scale, 1.0f));
+        SpatialLayout again;
+        again.load(layout.save());
+        again.sync({{6, "dolphin", 3840, 2160, false, 2.0f, false, true}}, headAt());
+        QVERIFY(near(again.windows().at(6).scale, 0.5f));
+        // Back to normal: its own scale.
+        layout.sync({{1, "dolphin", 1000, 700, false, 2.0f}}, headAt());
+        QVERIFY(!layout.windows().at(1).maximized);
+        QVERIFY(near(layout.windows().at(1).scale, 1.0f));
+        // The size button's round: maximized, fullscreen, normal: its own scale at the end.
+        layout.sync({{1, "dolphin", 3840, 2160, false, 2.0f, false, true}}, headAt());
+        layout.sync({{1, "dolphin", 3840, 2160, true, 2.0f}}, headAt());
+        layout.sync({{1, "dolphin", 1000, 700, false, 2.0f}}, headAt());
+        QVERIFY(near(layout.windows().at(1).scale, 1.0f));
+        // Maximized, then made smaller with the resize button: the pixels asked at its scale (no jump).
+        layout.sync({{1, "dolphin", 3840, 2160, false, 2.0f, false, true}}, headAt());
+        layout.askedSize(1, 3000, 1800);
+        layout.sync({{1, "dolphin", 3000, 1800, false, 2.0f}}, headAt());
+        QVERIFY(near(layout.windows().at(1).scale, 0.5f));
+        QVERIFY(near(layout.widthMeters(layout.windows().at(1)), 1.5f));
+    }
+
+    //! The cinema screen resized with the resize button: any shape, larger with more pixels (its scale stays), the app's
+    //! own changes still keep its width; the next time it comes back as wide and where it was, at the app's own size
+    //! (its shape is not remembered: every film has its own).
+    void cinemaScreenResizedKeepsItsScaleAndComesBack()
+    {
+        SpatialLayout layout;
+        layout.sync({{1, "mpv", 3840, 2160, false, 2.0f}}, headAt());
+        layout.askedSize(1, 1920, 1080); // the window made smaller before cinema: not the screen's size
+        layout.sync({{1, "mpv", 1920, 1080, false, 2.0f}}, headAt());
+        layout.enterCinema(1, headAt());
+        layout.sync({{1, "mpv", 1920, 1080, true, 2.0f}}, headAt());
+        QVERIFY(near(layout.widthMeters(layout.windows().at(1)), 3.6f));
+        // Wider, for a 2.39:1 film: the pixels asked come, the scale stays, the screen is wider and as high.
+        const float scale = layout.windows().at(1).scale;
+        layout.askedSize(1, 2580, 1080);
+        layout.sync({{1, "mpv", 2582, 1080, true, 2.0f}}, headAt()); // the app's units at 200 %: two pixels off
+        QVERIFY(near(layout.windows().at(1).scale, scale));
+        QVERIFY(near(layout.widthMeters(layout.windows().at(1)), 3.6f * 2582.0f / 1920.0f, 0.01f));
+        const float wide = layout.widthMeters(layout.windows().at(1));
+        // A change the user did not ask for (the app's own): the width stays.
+        layout.sync({{1, "mpv", 1920, 1080, true, 2.0f}}, headAt());
+        QVERIFY(near(layout.widthMeters(layout.windows().at(1)), wide, 0.01f));
+        // Scaled larger with the handle, as before.
+        layout.beginScale(1, {0, 0, 0}, (layout.surfacePose(layout.windows().at(1)).transform({1.5f, 0.0f, 0.0f})).normalized());
+        layout.updateScale({0, 0, 0}, (layout.surfacePose(layout.windows().at(1)).transform({1.8f, 0.0f, 0.0f})).normalized());
+        layout.endDrag();
+        const float wider = layout.widthMeters(layout.windows().at(1));
+        QVERIFY(wider > wide + 0.3f);
+        layout.leaveCinema();
+        layout.sync({{1, "mpv", 3840, 2160, false, 2.0f}}, headAt());
+        // Next time: as wide as it was left, at the app's own fullscreen size (not the 2.39 shape asked before).
+        layout.enterCinema(1, headAt());
+        layout.sync({{1, "mpv", 1920, 1080, true, 2.0f}}, headAt());
+        QVERIFY(near(layout.widthMeters(layout.windows().at(1)), wider, 0.01f));
+        QCOMPARE(layout.windows().at(1).widthPx, 1920);
+        layout.leaveCinema();
+    }
+
     void fullscreenIsACinemaScreenAndComesBack()
     {
         SpatialLayout layout;
@@ -1188,6 +1263,237 @@ private Q_SLOTS:
         QVERIFY(!recentreFromHeads(heads));
     }
 
+    void lockedWindowStaysPutButStillScales()
+    {
+        SpatialLayout layout;
+        layout.sync({{1, "mpv", 1920, 1080}}, headAt());
+        QVERIFY(layout.toggleLock(1));
+        QVERIFY(layout.windows().at(1).locked);
+        const Vec3 before = layout.windows().at(1).pose.position;
+        const Vec3 facingBefore = layout.windows().at(1).pose.forward();
+        // A grab by chance: the hand turns 30 degrees, pushes away and grows it.
+        const Pose controller{{}, {0, -0.1f, 0}};
+        QVERIFY(layout.beginGrab(1, controller, 1.6f));
+        const Pose turned{Quat::fromYaw(-radians(30.0f)), {0.2f, 0.1f, 0}};
+        for (int i = 0; i < 100; ++i) {
+            layout.updateGrab(turned, headAt(), 1.0f, 1.0f, 0.01f);
+        }
+        layout.endGrab();
+        const SpatialWindow &held = layout.windows().at(1);
+        QVERIFY(near(held.pose.position.x, before.x) && near(held.pose.position.y, before.y) && near(held.pose.position.z, before.z));
+        QVERIFY(near(held.pose.forward().x, facingBefore.x) && near(held.pose.forward().z, facingBefore.z));
+        QVERIFY(near(held.scale, std::exp(0.8f), 0.01f)); // its scale still changes
+        // Unlocked: the same grab moves it.
+        QVERIFY(!layout.toggleLock(1));
+        const Pose turnedInPlace{Quat::fromYaw(-radians(30.0f)), {0, -0.1f, 0}};
+        layout.beginGrab(1, controller, 1.6f);
+        layout.updateGrab(turnedInPlace, headAt(), 0.0f, 0.0f, 0.01f);
+        layout.endGrab();
+        QVERIFY(near(azimuthOf(layout.windows().at(1).pose.position), radians(30.0f), 0.02f));
+        // Locked is remembered for the app, and stays through cinema mode.
+        QVERIFY(layout.toggleLock(1));
+        SpatialLayout restarted;
+        restarted.load(layout.save());
+        restarted.sync({{4, "mpv", 1920, 1080}}, headAt());
+        QVERIFY(restarted.windows().at(4).locked);
+        restarted.enterCinema(4, headAt());
+        const Vec3 screen = restarted.windows().at(4).pose.position;
+        restarted.beginGrab(4, controller, 3.5f);
+        restarted.updateGrab(turned, headAt(), 1.0f, 0.0f, 0.01f);
+        restarted.endGrab();
+        QVERIFY(near(restarted.windows().at(4).pose.position.x, screen.x) && near(restarted.windows().at(4).pose.position.z, screen.z));
+        restarted.leaveCinema();
+        QVERIFY(restarted.windows().at(4).locked);
+        // A window from before the padlock (no "locked" saved): not locked.
+        SpatialLayout old;
+        QJsonObject saved = layout.save();
+        QJsonObject windows = saved.value(QStringLiteral("windows")).toObject();
+        QJsonObject mpv = windows.value(QStringLiteral("mpv")).toObject();
+        mpv.remove(QStringLiteral("locked"));
+        windows.insert(QStringLiteral("mpv"), mpv);
+        saved.insert(QStringLiteral("windows"), windows);
+        old.load(saved);
+        old.sync({{9, "mpv", 1920, 1080}}, headAt());
+        QVERIFY(!old.windows().at(9).locked);
+    }
+
+    //! Cinema mode's row of shapes: under the grab bar, only on the cinema screen; each shape's pixels as large as fit a
+    //! UHD picture; the screen in the 16:9 frame around it; Original from the size the app chose; one shape lit.
+    void cinemaShapes()
+    {
+        FrameLayout f = FrameLayout::compute(3.6f, 2.025f, 0.05f, 3.5f);
+        const FrameRect first = f.aspects[0];
+        QVERIFY(f.aspectBar.y < f.grab.y - f.grab.height / 2.0f && near(f.aspectBar.x, 0.0f));
+        QVERIFY(f.hit(first.x, first.y) != FrameControl::AspectOriginal); // not on an ordinary window
+        f.showAspects();
+        QVERIFY(f.aspectsShown);
+        QVERIFY(f.near(first.x, first.y - first.height / 2.0f)); // the frame shows near the whole row
+        QVERIFY(f.near(f.aspects[kAspects - 1].x, f.aspects[kAspects - 1].y - f.aspects[kAspects - 1].height / 2.0f));
+        // Tallest to widest after Original.
+        for (int i = 2; i < kAspects; ++i) {
+            QVERIFY(kAspectValues[i] > kAspectValues[i - 1]);
+        }
+        for (int i = 0; i < kAspects; ++i) {
+            QCOMPARE(f.hit(f.aspects[i].x, f.aspects[i].y), kAspectOrder[i]);
+            QCOMPARE(aspectIndex(kAspectOrder[i]), i);
+        }
+        QCOMPARE(f.hit(0.0f, f.grab.y), FrameControl::Grab); // the grab bar still grabs
+        QCOMPARE(aspectIndex(FrameControl::Grab), -1);
+        // Pixels: a 4K film's own, whatever its shape.
+        QCOMPARE(screenPixels(16.0f / 9.0f), std::make_pair(3840, 2160));
+        QCOMPARE(screenPixels(2.39f), std::make_pair(3840, 1606));
+        QCOMPARE(screenPixels(1.85f), std::make_pair(3840, 2076));
+        QCOMPARE(screenPixels(2.0f), std::make_pair(3840, 1920));
+        QCOMPARE(screenPixels(4.0f / 3.0f), std::make_pair(2880, 2160));
+        QCOMPARE(screenPixels(1.90f), std::make_pair(3840, 2022));
+        QCOMPARE(screenPixels(1.43f), std::make_pair(3088, 2160));
+        // In the 16:9 frame around the screen: a wide shape the frame's width, a narrower one its height.
+        QVERIFY(near(shapeWidthInFrame(2.39f, 3.6f, 2.025f), 3.6f));
+        QVERIFY(near(shapeWidthInFrame(4.0f / 3.0f, 3.6f, 2.025f), 2.7f));
+        QVERIFY(near(shapeWidthInFrame(16.0f / 9.0f, 3.6f, 3.6f / 2.39f), 3.6f)); // from a 2.39 screen: as wide, taller
+        QVERIFY(near(shapeWidthInFrame(2.39f, 2.7f, 2.025f), 3.6f)); // from a 4:3 screen: the frame's full width again
+        // What is lit: one shape, the one the screen is. A size of the user's own: none (not a wrong one). The app's own
+        // shape and a usual one that are the same: Original only.
+        QCOMPARE(shapeLit(3500, 1700, 0, 0), -1);
+        QCOMPARE(shapeLit(3500, 1700, 1920, 1080), -1);
+        QCOMPARE(shapeLit(3840, 1606, 0, 0), 7);
+        QCOMPARE(shapeLit(3840, 1606, 3840, 1608), 0); // the film's own: Original alone, not Original and 2.39
+        QCOMPARE(shapeLit(3840, 2160, 1920, 1080), 0);
+        QCOMPARE(shapeLit(2880, 2160, 3840, 1608), 1);
+        QCOMPARE(shapeLit(3840, 2022, 0, 0), 5); // IMAX 1.90
+        QCOMPARE(shapeLit(3088, 2160, 0, 0), 2); // IMAX film 1.43
+        QCOMPARE(shapeLit(0, 2160, 0, 0), -1);
+
+        // Original: the size the app chose, not one asked with the resize button.
+        SpatialLayout layout;
+        layout.sync({{1, "mpv", 3840, 1608, false, 2.0f}}, headAt());
+        layout.askedSize(1, 2000, 1500);
+        layout.sync({{1, "mpv", 2000, 1500, false, 2.0f}}, headAt());
+        QCOMPARE(layout.windows().at(1).naturalWidthPx, 3840);
+        QCOMPARE(layout.windows().at(1).naturalHeightPx, 1608);
+        // In cinema, the 2.39 shape: once the app has its pixels, the screen as wide as asked, and remembered.
+        layout.enterCinema(1, headAt());
+        layout.sync({{1, "mpv", 3840, 2160, true, 2.0f}}, headAt());
+        // Made 8K with the resize button first: the 2.39 shape's 4K pixels at that scale would halve the screen.
+        layout.askedSize(1, 7680, 4320);
+        layout.sync({{1, "mpv", 7680, 4320, true, 2.0f}}, headAt());
+        const float wide = layout.widthMeters(layout.windows().at(1));
+        const auto [w, h] = screenPixels(2.39f);
+        layout.setCinemaShape(1, w, h, shapeWidthInFrame(2.39f, wide, layout.heightMeters(layout.windows().at(1))));
+        layout.askedSize(1, w, h);
+        layout.sync({{1, "mpv", w, h, true, 2.0f}}, headAt());
+        QVERIFY(near(layout.widthMeters(layout.windows().at(1)), wide, 0.01f));
+        QVERIFY(near(layout.heightMeters(layout.windows().at(1)), wide / (float(w) / float(h)), 0.01f));
+        const float shaped = layout.widthMeters(layout.windows().at(1));
+        layout.leaveCinema();
+        layout.sync({{1, "mpv", 3840, 1608, false, 2.0f}}, headAt());
+        // Next time: as wide as it was left (its place and width are remembered, not its shape).
+        layout.enterCinema(1, headAt());
+        layout.sync({{1, "mpv", 3840, 2160, true, 2.0f}}, headAt());
+        QVERIFY(near(layout.widthMeters(layout.windows().at(1)), shaped, 0.01f));
+        // Not the cinema screen: nothing.
+        layout.setCinemaShape(7, 100, 100, 1.0f);
+    }
+
+    //! Switching shapes back and forth never shrinks the screen (Original, 16:9, the others, Original again once left
+    //! it small): every shape fits the same 16:9 frame around the screen, as a real screen's
+    //! masking, so Original is as large again at the end.
+    void cinemaShapesComeBackToTheSameSize()
+    {
+        SpatialLayout layout;
+        layout.sync({{1, "mpv", 3840, 1608, false, 2.0f}}, headAt()); // a 2.39:1 film's own window
+        layout.enterCinema(1, headAt());
+        // As the XR side does for a shape: its pixels, its width in the frame, asked of the app, which then has them.
+        const auto shape = [&](float aspect) {
+            const SpatialWindow &w = layout.windows().at(1);
+            const auto [px, py] = screenPixels(aspect);
+            layout.setCinemaShape(1, px, py, shapeWidthInFrame(aspect, layout.widthMeters(w), layout.heightMeters(w)));
+            layout.askedSize(1, px, py);
+            layout.sync({{1, "mpv", px, py, true, 2.0f}}, headAt());
+        };
+        const float original = 3840.0f / 1608.0f;
+        shape(original); // entering cinema: Original
+        const float width = layout.widthMeters(layout.windows().at(1));
+        const float height = layout.heightMeters(layout.windows().at(1));
+        for (const float aspect : {16.0f / 9.0f, 1.85f, 2.0f, 2.39f, 4.0f / 3.0f, 16.0f / 9.0f, original}) {
+            shape(aspect);
+        }
+        QVERIFY2(near(layout.widthMeters(layout.windows().at(1)), width, 0.01f),
+                 qPrintable(QStringLiteral("%1 m wide at the end, %2 m at first").arg(layout.widthMeters(layout.windows().at(1))).arg(width)));
+        QVERIFY(near(layout.heightMeters(layout.windows().at(1)), height, 0.01f));
+        // 16:9 fills the frame: as wide as the 2.39 screen, taller; 4:3 as high as 16:9, narrower.
+        shape(16.0f / 9.0f);
+        QVERIFY(near(layout.widthMeters(layout.windows().at(1)), width, 0.01f));
+        const float frameHeight = layout.heightMeters(layout.windows().at(1));
+        QVERIFY(frameHeight > height + 0.3f);
+        shape(4.0f / 3.0f);
+        QVERIFY(near(layout.heightMeters(layout.windows().at(1)), frameHeight, 0.01f));
+        QVERIFY(near(layout.widthMeters(layout.windows().at(1)), frameHeight * 4.0f / 3.0f, 0.01f));
+        layout.leaveCinema();
+    }
+
+    //! Windows stay inside the room drawn around the user (a sphere of 4.75 m): beyond it, a window is drawn over the room
+    //! while the eyes see it behind (it floats and slides with the head, which can make people feel sick). A push stops inside it,
+    //! with the frame's controls; growing stops; a window already beyond comes in looking the same; no room, no limit.
+    void windowsStayInsideTheRoom()
+    {
+        const float limit = 4.75f - SpatialLayout::kRoomMargin;
+        SpatialLayout layout;
+        layout.sync({{1, "mpv", 1920, 1080}}, headAt());
+        layout.setRoomBound({0, 0, 0}, 4.75f);
+        const Pose controller{{}, {0, -0.1f, 0}};
+        QVERIFY(layout.beginGrab(1, controller, 1.6f));
+        for (int i = 0; i < 300; ++i) {
+            layout.updateGrab(controller, headAt(), 1.0f, 0.0f, 0.02f); // pushed for 6 s
+        }
+        layout.endGrab();
+        const SpatialWindow &pushed = layout.windows().at(1);
+        QVERIFY2(layout.farthestFromRoomCentre(pushed) <= limit + 0.01f, qPrintable(QString::number(layout.farthestFromRoomCentre(pushed))));
+        QVERIFY(layout.farthestFromRoomCentre(pushed) > limit - 0.2f); // up to the room, not stopped short
+        QVERIFY(pushed.pose.position.z < -2.5f && near(pushed.scale, 1.0f)); // in front, its size kept
+        // Pulled back in: it comes nearer as before.
+        const float wallZ = pushed.pose.position.z;
+        layout.beginGrab(1, controller, -wallZ);
+        layout.updateGrab(controller, headAt(), -1.0f, 0.0f, 0.5f);
+        layout.endGrab();
+        QVERIFY(layout.windows().at(1).pose.position.z > wallZ + 0.3f);
+
+        // Grown with the scale handle: no larger than the room has room for.
+        layout.beginScale(1, {0, 0, 0}, (layout.surfacePose(layout.windows().at(1)).transform({0.9f, 0.5f, 0.0f})).normalized());
+        layout.updateScale({0, 0, 0}, (layout.surfacePose(layout.windows().at(1)).transform({6.0f, 3.4f, 0.0f})).normalized());
+        layout.endDrag();
+        QVERIFY(layout.farthestFromRoomCentre(layout.windows().at(1)) <= limit + 0.01f);
+
+        // Already beyond (placed while the room was off): in, looking the same from the room's centre.
+        SpatialLayout far;
+        far.sync({{2, "dolphin", 1000, 700}}, headAt());
+        far.beginGrab(2, controller, 1.6f);
+        for (int i = 0; i < 300; ++i) {
+            far.updateGrab(controller, headAt(), 1.0f, 0.0f, 0.02f); // no room: as far as 8 m
+        }
+        far.endGrab();
+        const SpatialWindow before = far.windows().at(2);
+        QVERIFY(far.farthestFromRoomCentre(before) > 6.0f);
+        const float apparent = far.widthMeters(before) / before.pose.position.length();
+        far.setRoomBound({0, 0, 0}, 4.75f);
+        far.keepWindowsInRoom();
+        const SpatialWindow &after = far.windows().at(2);
+        QVERIFY(far.farthestFromRoomCentre(after) <= limit + 0.01f);
+        QVERIFY(near(far.widthMeters(after) / after.pose.position.length(), apparent, 0.002f));
+        // Too large for the room anywhere: smaller as well.
+        far.load(QJsonObject{});
+        SpatialLayout huge;
+        huge.sync({{3, "mpv", 3840, 2160}}, headAt());
+        huge.setRoomBound({0, 0, 0}, 4.75f);
+        huge.keepWindowsInRoom();
+        QVERIFY(huge.farthestFromRoomCentre(huge.windows().at(3)) <= limit + 0.01f);
+        // No room drawn: no limit.
+        huge.setRoomBound({0, 0, 0}, 0.0f);
+        const float scale = huge.windows().at(3).scale;
+        huge.keepWindowsInRoom();
+        QCOMPARE(huge.windows().at(3).scale, scale);
+    }
+
     void frameControlsAroundTheWindow()
     {
         // A 1.0 x 0.6 m window at 1.6 m (unit 1), corners 0.022 m.
@@ -1230,6 +1536,13 @@ private Q_SLOTS:
         QCOMPARE(f.hit(f.resetCurve.x, f.resetCurve.y), FrameControl::ResetCurve);
         QVERIFY(f.resetCurve.x > f.curve.x + f.curve.width / 2.0f);
         QVERIFY(near(f.curvatureAt(f.knobX(0.4f)), 0.4f) && near(f.knobX(0.0f), -f.curve.width / 2.0f));
+        // The padlock at the slider's left end, as the flat dot at its right, and clear of the slider.
+        QVERIFY(near(f.lock.y, f.curve.y) && f.lock.x + f.lock.width / 2.0f < f.curve.x - f.curve.width / 2.0f);
+        QVERIFY(near(f.curve.x - f.lock.x, f.resetCurve.x - f.curve.x, 0.005f));
+        QCOMPARE(f.hit(f.lock.x, f.lock.y), FrameControl::Lock);
+        QCOMPARE(f.hit(f.curve.x - f.curve.width / 2.0f + 0.002f, f.curve.y), FrameControl::Curve);
+        QCOMPARE(small.hit(small.lock.x, small.lock.y), FrameControl::Lock);
+        QVERIFY(std::fabs(small.lock.x) + small.lock.width / 2.0f < 0.2f); // above the narrow window, not beside it
         // Far away: nothing; near: the frame shows.
         QCOMPARE(f.hit(0.0f, 0.5f), FrameControl::None);
         QVERIFY(f.near(-0.6f, 0.0f) && f.near(0.0f, -0.36f) && !f.near(0.0f, 0.5f) && !f.near(1.0f, 0.0f));
@@ -1505,6 +1818,20 @@ private Q_SLOTS:
         QCOMPARE(s.lt, uint8_t(128));
         QVERIFY(s.rb && !s.lb && s.a && s.y && !s.b && !s.x);
         QCOMPARE(gamepadAxis(-2.0f), int16_t(-32767)); // clamped
+    }
+
+    //! The copy's density follows Picture quality: 1.95 times the runtime's 1:1 density at the standard 165 %, as much
+    //! more as the runtime's picture is denser above it, so the copy stays as many times denser than that picture.
+    void copiesFollowPictureQuality()
+    {
+        QVERIFY(near(Sharpness::targetDensity(793.0f, 165), 1.95f * 793.0f, 0.5f));
+        QVERIFY(near(Sharpness::targetDensity(793.0f, 200), 1.95f * 793.0f * 200.0f / 165.0f, 0.5f));
+        QVERIFY(near(Sharpness::targetDensity(793.0f, 100), Sharpness::targetDensity(793.0f, 165))); // never less than standard
+        // Against the runtime's picture (percent of the panel's pixels a side): the same ratio at 165 and at 200.
+        const auto ratio = [](int quality) {
+            return Sharpness::targetDensity(793.0f, quality) / (float(quality) * 793.0f);
+        };
+        QVERIFY(near(ratio(165), ratio(200), 1e-6f));
     }
 
     void farWindowsGetAFilteredCopy()

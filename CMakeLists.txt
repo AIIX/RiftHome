@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Aditya Mehra <aix.m@outlook.com>
 # SPDX-License-Identifier: Apache-2.0
 cmake_minimum_required(VERSION 3.25)
-project(RiftHome VERSION 0.1.0 LANGUAGES C CXX)
+project(RiftHome VERSION 0.1.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

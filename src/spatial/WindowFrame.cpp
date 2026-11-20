@@ -36,6 +36,19 @@ FrameLayout FrameLayout::compute(float width, float height, float cornerRadius, 
     // The curvature slider above, its reset dot at the right end.
     f.curve = {0.0f, h + gap + bar / 2.0f, std::clamp(0.22f * width, 0.14f * u, 0.24f * u), bar};
     f.resetCurve = {f.curve.x + f.curve.width / 2.0f + 0.02f * u + kDot * u / 2.0f, f.curve.y, kDot * u, kDot * u};
+    // The padlock at the slider's left end, as far from it as the flat dot on the right.
+    f.lock = {f.curve.x - f.curve.width / 2.0f - 0.02f * u - kLockDot * u / 2.0f, f.curve.y, kLockDot * u, kLockDot * u};
+    // Cinema mode's shapes: a row under the grab bar, centred.
+    const float shapeHeight = kAspectHeight * u;
+    const float originalWidth = kAspectOriginalButton * u;
+    const float shapeWidth = kAspectButton * u;
+    f.aspectBar = {0.0f, f.grab.y - bar / 2.0f - 0.6f * gap - shapeHeight / 2.0f, originalWidth + (kAspects - 1) * shapeWidth, shapeHeight};
+    float edge = f.aspectBar.x - f.aspectBar.width / 2.0f; // each button's left edge, left to right
+    for (int i = 0; i < kAspects; ++i) {
+        const float w = i == 0 ? originalWidth : shapeWidth;
+        f.aspects[i] = {edge + w / 2.0f, f.aspectBar.y, w, shapeHeight};
+        edge += w;
+    }
     // The scale handle: an arc around the rounded corner, arms along both edges.
     const float cx = w - cornerRadius;
     const float cy = -h + cornerRadius;
@@ -59,6 +72,17 @@ FrameLayout FrameLayout::compute(float width, float height, float cornerRadius, 
     return f;
 }
 
+void FrameLayout::showAspects()
+{
+    aspectsShown = true;
+    // The frame shows near the row too (it sits below the usual margin).
+    const float bottom = hover.y - hover.height / 2.0f;
+    const float needed = aspectBar.y - aspectBar.height / 2.0f - 0.03f * unit;
+    if (needed < bottom) {
+        hover = {hover.x, (hover.y + hover.height / 2.0f + needed) / 2.0f, hover.width, hover.y + hover.height / 2.0f - needed};
+    }
+}
+
 FrameControl FrameLayout::hit(float x, float y) const
 {
     // The window itself is its content's (the scale handle's corner square reaches into it).
@@ -69,6 +93,14 @@ FrameControl FrameLayout::hit(float x, float y) const
         for (int i = 0; i < kMenuButtons; ++i) {
             if (buttons[i].grown(0.01f * unit, 0.0f).contains(x, y)) {
                 return kMenuOrder[i];
+            }
+        }
+        return FrameControl::None;
+    }
+    if (aspectsShown && aspectBar.grown(0.0f, 0.004f * unit).contains(x, y)) { // before the grab bar's wide hit band
+        for (int i = 0; i < kAspects; ++i) {
+            if (aspects[i].grown(0.0f, 0.004f * unit).contains(x, y)) {
+                return kAspectOrder[i];
             }
         }
         return FrameControl::None;
@@ -86,6 +118,9 @@ FrameControl FrameLayout::hit(float x, float y) const
     if (resetCurve.grown(0.012f * unit, 0.024f * unit).contains(x, y)) {
         return FrameControl::ResetCurve;
     }
+    if (lock.grown(0.012f * unit, 0.024f * unit).contains(x, y)) {
+        return FrameControl::Lock;
+    }
     if (curve.grown(0.008f * unit, grow).contains(x, y)) { // short of the reset dot
         return FrameControl::Curve;
     }
@@ -96,6 +131,60 @@ FrameControl FrameLayout::hit(float x, float y) const
         return FrameControl::Grab;
     }
     return FrameControl::None;
+}
+
+int aspectIndex(FrameControl control)
+{
+    for (int i = 0; i < kAspects; ++i) {
+        if (kAspectOrder[i] == control) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+std::pair<int, int> screenPixels(float aspect, int frameWidth, int frameHeight)
+{
+    if (aspect <= 0.0f) {
+        return {frameWidth, frameHeight};
+    }
+    const auto even = [](float value) {
+        return std::max(2, int(std::lround(value / 2.0f)) * 2);
+    };
+    if (aspect >= float(frameWidth) / float(frameHeight)) {
+        return {frameWidth, even(float(frameWidth) / aspect)};
+    }
+    return {even(float(frameHeight) * aspect), frameHeight};
+}
+
+int shapeLit(int width, int height, int naturalWidth, int naturalHeight)
+{
+    if (width <= 0 || height <= 0) {
+        return -1;
+    }
+    const float now = float(width) / float(height);
+    const auto same = [now](float aspect) {
+        return aspect > 0.0f && std::abs(now / aspect - 1.0f) < 0.01f;
+    };
+    if (naturalWidth > 0 && naturalHeight > 0 && same(float(naturalWidth) / float(naturalHeight))) {
+        return 0;
+    }
+    for (int i = 1; i < kAspects; ++i) {
+        if (same(kAspectValues[i])) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+float shapeWidthInFrame(float aspect, float width, float height)
+{
+    if (aspect <= 0.0f || width <= 0.0f || height <= 0.0f) {
+        return width;
+    }
+    constexpr float frame = 16.0f / 9.0f; // the 4K picture's shape
+    const float frameWidth = width / height >= frame ? width : height * frame;
+    return aspect >= frame ? frameWidth : frameWidth / frame * aspect;
 }
 
 } // namespace RiftHome::Spatial

@@ -113,7 +113,7 @@ How the room looks in cinema mode: **Dark** (black), **Dim** (the default) or **
 | --- | --- |
 | Colour | The ray's colour: Ice, White, Green, Amber or Pink. |
 | Thickness | Thin, Normal or Thick. |
-| Hide when still | Never, After 3 s or After 10 s. A hidden pointer comes back as soon as you move the controller or press a button. |
+| Hide when still | Never, After 3 s or After 10 s. The controller hides with its ray, so neither is in front of a film. Both come back as soon as you move the controller or press a button. |
 
 ### Sharpness
 

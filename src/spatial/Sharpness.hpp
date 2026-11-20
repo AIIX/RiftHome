@@ -39,6 +39,18 @@ struct Sharpness {
 
     //! The level a window wants (continuous, 0 when no copy): @p pixelsPerMetre on it, seen from @p distance metres
     //! where it is nearest the eyes, against @p targetDensity pixels a radian (0: off).
+    /*!
+     * The density a window's copy is made at, pixels a radian: kDensityFactor times the runtime's 1:1 density
+     * (@p native, from the recommended view size), for Picture quality's standard 165 %; more with more (the runtime's
+     * picture @p pictureQuality percent of the panel's pixels a side: denser, so the copy is too). The copy stays
+     * about 1.5 times as dense as the runtime's picture at any quality; sized for 165 % at 200 % it would be only 1.2
+     * times (the 200 % picture's extra pixels unused, the copy sampled unevenly).
+     */
+    static float targetDensity(float native, int pictureQuality, float factor = kDensityFactor)
+    {
+        return factor * native * float(std::max(pictureQuality, kStandardQuality)) / float(kStandardQuality);
+    }
+    static constexpr int kStandardQuality = 165; //!< Picture quality's standard, percent (the factor was measured at it)
     static float wantedLevel(float pixelsPerMetre, float distance, float targetDensity)
     {
         if (targetDensity <= 0.0f || pixelsPerMetre <= 0.0f) {

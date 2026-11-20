@@ -40,9 +40,10 @@ When you point near a window's edge, its controls appear around it. Pull the tri
 | | Dot above the tilt bar | Puts the window upright and facing you again. |
 | Below the window | Grab bar | Hold the trigger on it to move the window. |
 | Bottom-right corner | Scale handle | Drag it to make the window larger or smaller. |
-| Top-right corner | Resize button | Drag it to give the app a new size in pixels, so it shows more (or less) content instead of just getting bigger. |
+| Top-right corner | Resize button | Drag it to give the app a new size in pixels, so it shows more (or less) content instead of just getting bigger. Point at it, or drag it, to see the window's numbers above it: its pixels and shape, its colour (HDR or SDR) and depth, and how many of its pixels the headset gets. |
 | Above the window | Curve slider | Drag the knob right to bend this window around you, left for flat. The thumbstick left and right bend it steadily. |
 | | Dot at the right end | Makes the window flat again. |
+| | Padlock at the left end | Locks the window in place: grabbing it no longer moves it, nearer or farther either, so a film is not knocked aside by a grip pressed by chance. Its size and scale still change. Press again to unlock. The lock is remembered for the app. |
 
 ### Grab, move, nearer and farther
 
@@ -54,6 +55,12 @@ Point at a window and hold the grip. The window follows your hand and keeps faci
 The window's middle stays within 45 degrees above or below your eyes, near or far, so a window never ends up straight
 above you or at your feet. Let go of the grip to leave it there. You can also use the grab bar below the window with
 the trigger. The controller buzzes when you grab a window and when your ray moves onto a different one.
+
+Windows stay inside the room, with their controls and a quarter of a metre to spare. Pushed farther, a window stops
+there, and it grows no larger than fits. A window farther away than that, for example one placed while the room was
+off, comes nearer and smaller by as much, so it looks the same size. A window behind the room's picture would still be
+drawn in front of it, and your eyes would get two different depths for it. That makes the window seem to slide as you
+move your head, and it can make you feel sick. With the room off, windows go as far as 8 metres.
 
 ### The curve around you
 
@@ -86,6 +93,45 @@ The Size button steps a window to maximised and then to full screen. Full-screen
 for example) take the place in front of you and move the other windows aside. Cinema shows one window alone,
 large, straight in front of you, with the other windows hidden and the room dimmed as you chose under "Room during a
 film" in Settings. Press Cinema again to bring everything back exactly as it was.
+
+Maximised and full-screen windows and the cinema screen are 3840x2160 pixels (4K), at any apps' scale: a 4K film
+plays at its own resolution, and at the usual apps' scale of 200 percent a maximised app gets a 1920x1080 desktop drawn
+twice as finely. A maximised window is as large in the room as before, with twice the detail. Rift Home shows a large
+picture through a smoothly filtered smaller copy, so the extra pixels are supersampling and the picture is cleaner,
+not just bigger.
+
+A film in mpv goes into cinema in its own shape: no black bars, at the film's own pixels (a 2.39:1 film in 4K is
+3840x1606). Under its screen, while you point near it, a row of shapes lets you change that. Each button shows its
+shape as a small outline, its name and its ratio: Original first, then tallest to widest.
+
+| Button | Ratio | Used for |
+| --- | --- | --- |
+| Original | the film's own | the film exactly as it was made |
+| Classic | 4:3 | older TV and classic films |
+| IMAX film | 1.43:1 | IMAX 70 mm's tall full-frame scenes |
+| TV | 16:9 | TV and most series |
+| Widescreen | 1.85:1 | the usual cinema widescreen |
+| IMAX | 1.90:1 | digital IMAX and IMAX Enhanced |
+| Streaming | 2:1 | many streaming originals |
+| Scope | 2.39:1 | most big films (also called 2.35 or 2.40) |
+
+The shape the screen has now is filled; the one your ray is on is only outlined. A shape you made yourself with the resize
+button fills none. Every shape fits the same 16:9 frame around the screen, as a cinema's masking: wide shapes use its
+full width, narrower ones its full height, so you can switch back and forth and always come back to the same size. The
+row is there for mpv only: another app's window (a browser, Stremio, a game) does not have its video's shape, so for
+those use the resize button.
+
+The resize button at the top-right corner still gives the screen any size and shape, up to 7680x4320 pixels (8K). The
+scale handle at the bottom-right corner makes the screen larger or smaller in the room without changing its pixels.
+
+For the best picture: the screen in the film's shape at the film's own pixels (the row does that), then as large as
+you like with the scale handle (a larger screen gets more of the headset's pixels), and Picture quality at 200 percent
+(Settings, Display & Room). More pixels than the film has (the resize button towards 8K) make the player enlarge the
+film: smoother, but no detail the film does not have.
+
+Until Rift Home is restarted, it remembers where you put each app's cinema screen and how wide it was: the next cinema
+of that app comes back there, a film in mpv in its own shape. A game from Steam (an X11 app) keeps the shape of its own
+screen; use the scale handle to make it larger.
 
 ### Window places
 

@@ -16,8 +16,9 @@ launcher.
   Touch controllers.
 - Home: a launcher with a search field and a card for every running app.
 - A dock with the keyboard, notifications, screenshots, volume, the time and the network.
-- Windows you grab and move, make nearer or farther, scale, resize, tilt, curve, pin or let follow you.
-- Cinema mode for video: one window as a large screen with the room dimmed.
+- Windows you grab and move, make nearer or farther, scale, resize, tilt, curve, pin, lock in place or let follow you.
+- Cinema mode for video: one window as a large 4K screen with the room dimmed, a film in mpv in its own shape
+  (Scope, IMAX, 16:9 and more).
 - HDR video in Firefox and mpv, shown with its HDR description.
 - Rooms around you: Rift Home's own, your own 2:1 panoramas and photos, or your desktop's wallpapers.
 - A virtual keyboard that opens by itself under the window you type into.

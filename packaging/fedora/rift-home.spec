@@ -3,7 +3,7 @@
 # Rift Home from its release's source (Fedora 44 and later). packaging/make-packages.sh builds the release's .rpm with
 # this file and a local source tarball (the Source0 below is the public address).
 Name:           rift-home
-Version:        0.1.0
+Version:        0.1.1
 Release:        1%{?dist}
 Summary:        A VR desktop for the Oculus Rift CV1 on RiftLinux
 # The program is Apache-2.0, the documentation CC-BY-4.0, the bundled OpenXR header and the RiftLinux test source BSL-1.0.
@@ -89,5 +89,8 @@ export QT_QPA_PLATFORM=offscreen
 %{_docdir}/rift-home/
 
 %changelog
+* Fri Nov 20 2026 Aditya Mehra <aix.m@outlook.com> - 0.1.1-1
+- Films in 4K and in their own shape, a window padlock, steadier windows with smoother edges
+
 * Sun Nov 08 2026 Aditya Mehra <aix.m@outlook.com> - 0.1.0-1
 - First release

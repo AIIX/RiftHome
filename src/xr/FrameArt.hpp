@@ -74,6 +74,9 @@ QImage flatDot(State state, Theme theme);
 QImage knob(State state, Theme theme);
 //! The resize button (top-right corner, FrameLayout::kResizeDot): a round button with two arrows pointing apart.
 QImage resizeDot(State state, Theme theme);
+//! The padlock at the curvature slider's left end (FrameLayout::kLockDot): open while the window can be moved, closed
+//! and lit (as the menu's buttons that are on) while its place is locked.
+QImage lockDot(bool locked, State state, Theme theme);
 //! The L-shaped scale handle around a rounded corner of @p cornerRadius frame units.
 QImage scaleCorner(float cornerRadius, State state, Theme theme);
 //! The virtual keyboard: glass with key caps and their labels (as they read now: shifted, caps lock), active modifiers lit.
@@ -140,6 +143,21 @@ QImage keyHighlight(bool pressed, Theme theme);
 QImage label(const QString &text, Theme theme);
 constexpr float kLabelWidth = 0.30f; //!< frame units ("Stop following" whole at a degree's text)
 constexpr float kLabelHeight = 0.058f;
+/*!
+ * Cinema mode's row of shapes under the screen (Spatial::kAspectOrder): each its outline, its name and its ratio
+ * (Original: the film's own, @p original "2.39:1" of @p originalAspect; empty: not known, dimmed). One look a meaning:
+ * the screen's shape now (@p lit, Spatial::shapeLit; -1: none) solid, as the menu's buttons that are on; the one the
+ * ray is on (@p hovered) only outlined; @p pressed a little filled; the others plain.
+ */
+QImage aspectBar(int lit, int hovered, int pressed, const QString &original, float originalAspect, Theme theme);
+//! A window's numbers above its resize button (pointed at or dragged): up to three lines on glass, a degree's text; a
+//! line too long for it is drawn smaller to fit (never cut short).
+QImage stats(const QStringList &lines, Theme theme);
+constexpr int kStatsLines = 4;
+constexpr float kStatsWidth = 0.66f; //!< frame units
+constexpr float kStatsHeight = 0.22f;
+//! The shape of @p width x @p height as people name it: "16:9", "2.39:1", ... (within 1 %), else "1.67:1".
+QString aspectRatio(int width, int height);
 
 /*!
  * The lens test (Settings, Display & Room), one eye's picture, as Oculus' "Adjust Your Lenses": black, the instructions

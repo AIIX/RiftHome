@@ -5,7 +5,7 @@ SPDX-License-Identifier: CC-BY-4.0
 
 # Known limitations
 
-This is what the first release does not do.
+This is what this release does not do.
 
 ## Hardware
 
@@ -26,8 +26,9 @@ This is what the first release does not do.
 
 ## Apps
 
-- **Chromium's WebXR runs with Chromium's system-call filter (seccomp) off.** The runtime connection needs that. The
-  browser's other sandbox stays on. It applies to a Chromium-based browser that Rift Home starts.
+- **Chromium's WebXR runs with Chromium's system-call filter (seccomp) off.** NVIDIA's graphics driver, which
+  Chromium starts in its XR process, needs a call the filter refuses. The browser's other sandbox stays on. It applies
+  to a Chromium-based browser that Rift Home starts.
 - **A running Chromium keeps its scale until it is restarted.** Changing "Apps' scale" does not change a browser that
   is already open.
 - **Stremio's own player is SDR.** For HDR, play through its external player with mpv (see [Apps](apps.md#stremio)).

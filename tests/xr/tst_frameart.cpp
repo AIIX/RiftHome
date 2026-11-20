@@ -74,6 +74,105 @@ private Q_SLOTS:
         QCOMPARE(lit(unknown, row(4.5f, unknown), row(7.0f, unknown)), 0);
         QVERIFY(lit(known, row(8.5f, known), row(11.6f, known)) > 100); // the button's frame and words
     }
+
+    //! The window's numbers: shapes named as people name them (within 1 %), others as a ratio to one; the art two lines
+    //! on the frame's glass at its size.
+    void windowStats()
+    {
+        QCOMPARE(FrameArt::aspectRatio(3840, 2160), QStringLiteral("16:9"));
+        QCOMPARE(FrameArt::aspectRatio(1920, 1080), QStringLiteral("16:9"));
+        QCOMPARE(FrameArt::aspectRatio(3840, 1607), QStringLiteral("2.39:1"));
+        QCOMPARE(FrameArt::aspectRatio(1440, 1080), QStringLiteral("4:3"));
+        QCOMPARE(FrameArt::aspectRatio(2560, 1080), QStringLiteral("2.39:1")); // 2.37: within 1 % of 2.39, not of 21:9 (2.33)
+        QCOMPARE(FrameArt::aspectRatio(5000, 2000), QStringLiteral("2.50:1"));
+        QCOMPARE(FrameArt::aspectRatio(0, 1080), QString());
+        const QStringList longest{QStringLiteral("Window, to 7680 \u00d7 4320 pixels \u00b7 2.39:1"), QStringLiteral("HDR (PQ, BT.2020), 10-bit YUV"),
+                                  QStringLiteral("Sent to the runtime: 2880 \u00d7 1620, enlarged"),
+                                  QStringLiteral("Each eye's picture: 2160 \u00d7 2400 (200 %)")};
+        const QImage art = FrameArt::stats(longest, FrameArt::Theme::Dark);
+        QVERIFY(std::abs(art.width() - int(std::lround(FrameArt::kStatsWidth * FrameArt::kPixelsPerUnit))) <= 1);
+        QVERIFY(art.pixelColor(art.width() / 2, art.height() / 2).alpha() > 100);
+        if (const QString dir = qEnvironmentVariable("RIFT_HOME_ART_DIR"); !dir.isEmpty()) {
+            art.save(dir + QStringLiteral("/stats.png")); // to look at
+        }
+        // A line far too long is drawn smaller, all of it inside the text's room (never cut short or past the glass).
+        const QImage blank = FrameArt::stats({QString(), QString(), QString(), QString()}, FrameArt::Theme::Dark);
+        const QString tooLong = QStringLiteral("Headset gets 2880 \u00d7 1620, sharpened, and then a great deal more");
+        const QImage shrunk = FrameArt::stats({QString(), QString(), tooLong, QString()}, FrameArt::Theme::Dark);
+        const QImage plain = FrameArt::stats({QString(), QString(), QStringLiteral("Headset"), QString()}, FrameArt::Theme::Dark);
+        const qreal row = (art.height() - 2) / qreal(FrameArt::kStatsLines);
+        const int roomRight = int(1 + row * 0.45 + (art.width() - 2) - row * 0.9);
+        const auto ink = [&](const QImage &image, int *left, int *right, int *top, int *bottom) {
+            *left = image.width();
+            *right = -1;
+            *top = image.height();
+            *bottom = -1;
+            for (int y = 0; y < image.height(); ++y) {
+                for (int x = 0; x < image.width(); ++x) {
+                    if (image.pixel(x, y) != blank.pixel(x, y)) {
+                        *left = std::min(*left, x);
+                        *right = std::max(*right, x);
+                        *top = std::min(*top, y);
+                        *bottom = std::max(*bottom, y);
+                    }
+                }
+            }
+        };
+        int l = 0, r = 0, t = 0, b = 0, pl = 0, pr = 0, pt = 0, pb = 0;
+        ink(shrunk, &l, &r, &t, &b);
+        ink(plain, &pl, &pr, &pt, &pb);
+        QVERIFY2(r >= 0 && r <= roomRight + 1, qPrintable(QStringLiteral("ink to %1, room to %2").arg(r).arg(roomRight)));
+        QVERIFY2(r > roomRight - row, "it fills the line"); // all of it, not cut short
+        QVERIFY2(b - t < pb - pt, "smaller letters than a line that fits");
+    }
+
+    //! Cinema mode's row of shapes: the frame's size, the selected shape lit (it differs from none selected).
+    void aspectRow()
+    {
+        const QImage none = FrameArt::aspectBar(-1, -1, -1, QString(), 0.0f, FrameArt::Theme::Dark);
+        const QImage film = FrameArt::aspectBar(0, -1, -1, QStringLiteral("2.39:1"), 2.39f, FrameArt::Theme::Dark);
+        QVERIFY(std::abs(none.width() - int(std::lround((0.12f + 7 * 0.092f) * FrameArt::kPixelsPerUnit))) <= 8);
+        QCOMPARE(film.size(), none.size());
+        QVERIFY(film != none);
+        // Hovered is an outline: it differs from not hovered, and from lit.
+        const QImage hovered = FrameArt::aspectBar(-1, 7, -1, QStringLiteral("2.39:1"), 2.39f, FrameArt::Theme::Dark);
+        const QImage lit = FrameArt::aspectBar(7, -1, -1, QStringLiteral("2.39:1"), 2.39f, FrameArt::Theme::Dark);
+        QVERIFY(hovered != lit && hovered != FrameArt::aspectBar(-1, -1, -1, QStringLiteral("2.39:1"), 2.39f, FrameArt::Theme::Dark));
+        // Inside the hovered button, just within its left edge (past the outline, before its icon and words): the glass,
+        // not a fill (a fill means lit).
+        const int scopeLeft = int(std::lround(0.12f * FrameArt::kPixelsPerUnit)) + 6 * int(std::lround(0.092f * FrameArt::kPixelsPerUnit));
+        const QPoint inside(scopeLeft + 13, lit.height() / 2);
+        QVERIFY(lit.pixelColor(inside).lightness() > hovered.pixelColor(inside).lightness() + 60);
+        if (const QString dir = qEnvironmentVariable("RIFT_HOME_ART_DIR"); !dir.isEmpty()) {
+            FrameArt::aspectBar(0, 3, -1, QStringLiteral("2.39:1"), 2.39f, FrameArt::Theme::Dark).save(dir + QStringLiteral("/aspects.png")); // to look at
+        }
+    }
+
+    //! The padlock: the frame's size, a closed and lit lock when locked (the shackle reaches into the body), an open
+    //! one when not (a gap between the shackle's left leg and the body), in both styles.
+    void lockDot()
+    {
+        for (const FrameArt::Theme theme : {FrameArt::Theme::Dark, FrameArt::Theme::Light}) {
+            const QImage locked = FrameArt::lockDot(true, FrameArt::State::Shown, theme);
+            const QImage open = FrameArt::lockDot(false, FrameArt::State::Shown, theme);
+            const int size = int(std::lround(0.036f * FrameArt::kPixelsPerUnit));
+            QVERIFY(std::abs(locked.width() - size) <= 1 && locked.height() == locked.width());
+            QCOMPARE(open.size(), locked.size());
+            QVERIFY(locked != open);
+            // Just above the body, where the shackle's left leg is: drawn when locked, a gap when open.
+            const qreal s = locked.width();
+            const QPoint leftLeg(int(s * (0.5 - 0.115)), int(s * 0.44));
+            const QColor inkLocked = locked.pixelColor(leftLeg);
+            const QColor backLocked = locked.pixelColor(QPoint(int(s * 0.2), int(s * 0.44)));
+            const QColor inkOpen = open.pixelColor(leftLeg);
+            const QColor backOpen = open.pixelColor(QPoint(int(s * 0.2), int(s * 0.44)));
+            const auto apart = [](QColor a, QColor b) {
+                return std::abs(a.red() - b.red()) + std::abs(a.green() - b.green()) + std::abs(a.blue() - b.blue()) > 60;
+            };
+            QVERIFY2(apart(inkLocked, backLocked), "the closed shackle's leg reaches the body");
+            QVERIFY2(!apart(inkOpen, backOpen), "the open shackle's leg stops above the body");
+        }
+    }
 };
 
 QTEST_MAIN(TestFrameArt)
